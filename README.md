@@ -488,6 +488,15 @@ python attacks/replay_attack.py
 python attacks/tampering_demo.py
 ```
 
+### 🎮 Simple Interactive Demo
+
+For a quick, interactive demonstration of all features (Encryption, Tampering, Replay Protection) in one script:
+
+```bash
+# General Demo
+python simple_demo.py
+```
+
 ---
 
 ## 📚 Documentation

@@ -13,12 +13,15 @@ Demonstrates:
 - Authenticated encryption
 - Attack detection
 """
-
-import socket
-import sys
-import threading
-import argparse
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger('VPNServer')
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -56,9 +59,9 @@ class VPNServer:
             self.running = True
             
             print("=" * 60)
-            print("QUANTUM-SAFE VPN SERVER")
-            print(f"   Listening on {self.host}:{self.port}")
-            print("   Using: Kyber + ECDH + AES-256-GCM")
+            logger.info("QUANTUM-SAFE VPN SERVER STARTED")
+            logger.info(f"Listening on {self.host}:{self.port}")
+            logger.info("Using: Kyber + ECDH + AES-256-GCM")
             print("=" * 60)
             
             self._accept_clients()
@@ -74,8 +77,9 @@ class VPNServer:
         try:
             while self.running:
                 try:
+                try:
                     client_socket, client_addr = self.server_socket.accept()
-                    print(f"CONNECT: New connection from {client_addr}")
+                    logger.info(f"CONNECT: New connection from {client_addr}")
                     
                     # Handle client in new thread
                     handler = threading.Thread(
@@ -106,7 +110,8 @@ class VPNServer:
                 return
             
             self.clients[client_addr] = (client_socket, cipher)
-            print(f"SUCCESS: Secure tunnel established with {client_addr}")
+            self.clients[client_addr] = (client_socket, cipher)
+            logger.info(f"SUCCESS: Secure tunnel established with {client_addr}")
             
             # Handle encrypted communication
             self._client_communication_loop(client_socket, cipher, client_addr)
@@ -122,7 +127,9 @@ class VPNServer:
                 client_socket.close()
             except:
                 pass
-            print(f"DISCONNECT: Client {client_addr} disconnected")
+            except:
+                pass
+            logger.info(f"DISCONNECT: Client {client_addr} disconnected")
     
     def _perform_key_exchange(self, client_socket: socket.socket, 
                                client_addr: tuple) -> AESGCM256:
@@ -204,7 +211,8 @@ class VPNServer:
                     # Don't respond to tampered packets
                     
                 except ReplayAttackError as e:
-                    print(f"ALERT: SECURITY from {client_addr}: {e}")
+                except ReplayAttackError as e:
+                    logger.warning(f"SECURITY ALERT from {client_addr}: {e}")
                     # Don't respond to replayed packets
                     
             except ConnectionResetError:
@@ -258,6 +266,7 @@ class VPNServer:
                 pass
         
         print("🛑 Server stopped")
+        logger.info("Server stopped")
 
 
 def main():

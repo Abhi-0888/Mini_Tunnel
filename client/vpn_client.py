@@ -42,6 +42,10 @@ class VPNClient:
         self.cipher = None
         self.running = False
         self.key_exchange = HybridKeyExchange()
+
+    def __repr__(self):
+        status = "Connected" if self.cipher else "Disconnected"
+        return f"<VPNClient(server={self.server_host}:{self.server_port}, status={status})>"
     
     def connect(self) -> bool:
         """
@@ -145,7 +149,16 @@ class VPNClient:
             if not chunk:
                 return None
             data += chunk
+            if not chunk:
+                return None
+            data += chunk
         return data
+
+    def get_stats(self) -> dict:
+        """Get VPN session statistics"""
+        if self.cipher:
+            return self.cipher.get_stats()
+        return {}
     
     def send_encrypted(self, data: bytes) -> bool:
         """
@@ -218,8 +231,14 @@ class VPNClient:
                 if message.lower() == 'quit':
                     break
                 
+                if message.lower() == 'stats':
+                    print(f"📊 Stats: {self.get_stats()}")
+                    continue
+
                 if message:
-                    self.send_encrypted(message.encode())
+                    if not self.send_encrypted(message.encode()):
+                        print("❌ Failed to send message (connection lost?)")
+                        break
         except KeyboardInterrupt:
             print("\n\n⚡ Interrupted")
         finally:

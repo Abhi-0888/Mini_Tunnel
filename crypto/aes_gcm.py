@@ -60,6 +60,17 @@ class AESGCM256:
         self.recv_counter = 0
         self.recv_window = set()  # Sliding window for replay protection
         self.window_size = 64
+        self.bytes_encrypted = 0
+        self.bytes_decrypted = 0
+
+    def get_stats(self) -> dict:
+        """Get encryption statistics"""
+        return {
+            'packets_sent': self.send_counter,
+            'packets_received': self.recv_counter,
+            'bytes_encrypted': self.bytes_encrypted,
+            'bytes_decrypted': self.bytes_decrypted
+        }
     
     def encrypt(self, plaintext: bytes, associated_data: Optional[bytes] = None) -> bytes:
         """
@@ -89,6 +100,9 @@ class AESGCM256:
         
         # Pack: counter + nonce + ciphertext + tag
         packet = struct.pack('>Q', counter) + nonce + ciphertext_with_tag
+        
+        # Update stats
+        self.bytes_encrypted += len(plaintext)
         
         return packet
     
@@ -132,6 +146,9 @@ class AESGCM256:
         
         # Update replay window
         self._update_replay_window(counter)
+        
+        # Update stats
+        self.bytes_decrypted += len(plaintext)
         
         return plaintext
     

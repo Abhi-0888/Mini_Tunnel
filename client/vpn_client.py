@@ -149,9 +149,6 @@ class VPNClient:
             if not chunk:
                 return None
             data += chunk
-            if not chunk:
-                return None
-            data += chunk
         return data
 
     def get_stats(self) -> dict:

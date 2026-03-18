@@ -14,6 +14,10 @@ Demonstrates:
 - Attack detection
 """
 import os
+import sys
+import socket
+import threading
+import argparse
 import logging
 
 # Configure logging
@@ -77,7 +81,6 @@ class VPNServer:
         try:
             while self.running:
                 try:
-                try:
                     client_socket, client_addr = self.server_socket.accept()
                     logger.info(f"CONNECT: New connection from {client_addr}")
                     
@@ -110,7 +113,6 @@ class VPNServer:
                 return
             
             self.clients[client_addr] = (client_socket, cipher)
-            self.clients[client_addr] = (client_socket, cipher)
             logger.info(f"SUCCESS: Secure tunnel established with {client_addr}")
             
             # Handle encrypted communication
@@ -125,8 +127,6 @@ class VPNServer:
                 del self.clients[client_addr]
             try:
                 client_socket.close()
-            except:
-                pass
             except:
                 pass
             logger.info(f"DISCONNECT: Client {client_addr} disconnected")
@@ -210,7 +210,6 @@ class VPNServer:
                     print(f"ALERT: SECURITY from {client_addr}: {e}")
                     # Don't respond to tampered packets
                     
-                except ReplayAttackError as e:
                 except ReplayAttackError as e:
                     logger.warning(f"SECURITY ALERT from {client_addr}: {e}")
                     # Don't respond to replayed packets

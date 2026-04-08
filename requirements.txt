@@ -1,10 +1,10 @@
-# Post-Quantum Cryptography
-pqcrypto>=0.1.3
+# Post-Quantum Cryptography (CRYSTALS-Kyber-768 / NIST FIPS 203)
+kyber-py>=1.2.0
 
-# Classical Cryptography (for comparison & AES-GCM)
+# Classical Cryptography (ECDH, AES-256-GCM)
 cryptography>=41.0.0
 
-# Packet Capture
+# Packet Capture (optional — required for full VPN mode)
 scapy>=2.5.0
 
 # Testing

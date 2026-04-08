@@ -12,10 +12,17 @@ Used by: Signal Protocol, Chrome/BoringSSL experiments
 """
 
 import hashlib
+import os
+import sys
 from typing import Tuple
 
-from .classical_kex import ClassicalECDH
-from .kyber_kex import KyberKEM
+if __package__:
+    from .classical_kex import ClassicalECDH
+    from .kyber_kex import KyberKEM
+else:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from crypto.classical_kex import ClassicalECDH
+    from crypto.kyber_kex import KyberKEM
 
 
 class HybridKeyExchange:

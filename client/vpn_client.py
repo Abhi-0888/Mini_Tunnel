@@ -1,13 +1,13 @@
 """
-VPN Client - Packet Capture and Encrypted Tunnel
+VPN Client - Quantum-Safe Encrypted Tunnel
+==========================================
+Connects to any device on the LAN running vpn_server.py.
 
-This client:
-1. Captures network packets using Scapy
-2. Performs quantum-safe key exchange (Kyber/Hybrid)
-3. Encrypts packet payloads with AES-256-GCM
-4. Sends encrypted packets through tunnel to server
-
-⚠️ Requires Administrator/root privileges for packet capture!
+Usage:
+    py -3 client/vpn_client.py                         # localhost
+    py -3 client/vpn_client.py --host 192.168.1.10     # LAN device
+    py -3 client/vpn_client.py --host 192.168.1.10 --port 5001  # via MITM
+    py -3 client/vpn_client.py --host 192.168.1.10 --demo       # automated
 """
 
 import socket
@@ -15,334 +15,241 @@ import sys
 import threading
 import argparse
 import os
+import time
+from datetime import datetime
 
-# Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from crypto.hybrid_kex import HybridKeyExchange
 from crypto.aes_gcm import AESGCM256, TamperingError, ReplayAttackError
 
+if os.name == 'nt':
+    os.system('color')
+G = '\033[92m'; R = '\033[91m'; Y = '\033[93m'
+C = '\033[96m'; B = '\033[1m';  D = '\033[2m'; X = '\033[0m'
+
+def _ts():
+    return datetime.now().strftime('%H:%M:%S.%f')[:-3]
+
 
 class VPNClient:
-    """
-    VPN Client with quantum-safe encryption
-    
-    Flow:
-    1. Connect to VPN server
-    2. Perform hybrid key exchange (Kyber + ECDH)
-    3. Capture packets and encrypt payloads
-    4. Send encrypted packets through tunnel
-    5. Receive and decrypt response packets
-    """
-    
-    def __init__(self, server_host: str, server_port: int):
-        self.server_host = server_host
-        self.server_port = server_port
-        self.socket = None
+    """Quantum-Safe VPN Client (Kyber-768 + ECDH + AES-256-GCM)."""
+
+    def __init__(self, host='localhost', port=5000):
+        self.host = host
+        self.port = port
+        self.sock = None
         self.cipher = None
         self.running = False
-        self.key_exchange = HybridKeyExchange()
+        self._kex = HybridKeyExchange()
+        self.session_key = None
 
-    def __repr__(self):
-        status = "Connected" if self.cipher else "Disconnected"
-        return f"<VPNClient(server={self.server_host}:{self.server_port}, status={status})>"
+    def _log(self, msg, colour=X):
+        print(f"  {colour}[{_ts()}] {msg}{X}")
     
-    def connect(self) -> bool:
-        """
-        Connect to VPN server and perform key exchange
-        
-        Returns:
-            bool: True if connection and key exchange successful
-        """
-        print(f"Connecting to VPN server at {self.server_host}:{self.server_port}...")
-        
+    # ── socket helpers ───────────────────────────────────────────────────────────
+
+    def _recv_exact(self, n):
+        buf = b''
+        while len(buf) < n:
+            chunk = self.sock.recv(n - len(buf))
+            if not chunk:
+                raise ConnectionError('Connection closed')
+            buf += chunk
+        return buf
+
+    def _send_data(self, data):
+        self.sock.sendall(len(data).to_bytes(4, 'big') + data)
+
+    def _recv_data(self):
+        n = int.from_bytes(self._recv_exact(4), 'big')
+        return self._recv_exact(n)
+
+    # ── connection & handshake ───────────────────────────────────────────────
+
+    def connect(self):
+        print(f"\n{B}{C}{'='*62}{X}")
+        print(f"{B}{C}  QUANTUM-SAFE VPN CLIENT{X}")
+        print(f"{B}{C}{'='*62}{X}")
+        print(f"  {D}Connecting to:{X} {B}{self.host}:{self.port}{X}\n")
+
         try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.connect((self.server_host, self.server_port))
-            print("Done: Connected to server")
-            
-            # Perform key exchange
-            if self._perform_key_exchange():
-                print("Done: Quantum-safe key exchange complete!")
-                return True
-            else:
-                print("Error: Key exchange failed")
-                return False
-                
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.connect((self.host, self.port))
+            self._log(f"TCP connected to {self.host}:{self.port}", G)
         except ConnectionRefusedError:
-            print(f"Error: Connection refused. Is the server running?")
+            print(f"  {R}Connection refused — is the server running?{X}")
             return False
-        except Exception as e:
-            print(f"Error: Connection error: {e}")
+        except Exception as exc:
+            print(f"  {R}Connection error: {exc}{X}")
             return False
-    
-    def _perform_key_exchange(self) -> bool:
-        """
-        Perform hybrid Kyber + ECDH key exchange with server
-        
-        Protocol:
-        1. Client generates keypairs
-        2. Client sends ECDH public + Kyber public to server
-        3. Server responds with ECDH public + Kyber ciphertext
-        4. Both derive same shared key
-        """
-        print("\n[KEY_EXCHANGE] Initiating quantum-safe key exchange...")
-        
+
+        return self._handshake()
+
+    def _handshake(self):
+        self._log('Starting Kyber-768 + ECDH P-384 handshake...', C)
         try:
             # Generate our keypairs
-            client_ecdh_pub, client_kyber_pub, client_kyber_sk = \
-                self.key_exchange.generate_keypairs()
-            
-            print(f"   >>> Sending client public keys...")
-            
-            # Send our public keys (length-prefixed)
-            self._send_data(client_ecdh_pub)
-            self._send_data(client_kyber_pub)
-            
-            # Receive server's public keys
-            print(f"   <<< Receiving server public keys...")
-            server_ecdh_pub = self._recv_data()
-            server_kyber_pub = self._recv_data()
-            
-            if not server_ecdh_pub or not server_kyber_pub:
-                return False
-            
-            # Initiate exchange (client encapsulates)
-            kyber_ct, shared_key = self.key_exchange.initiate_exchange(
-                server_ecdh_pub, server_kyber_pub
-            )
-            
-            # Send Kyber ciphertext to server
-            print(f"   >>> Sending Kyber ciphertext...")
-            self._send_data(kyber_ct)
-            
-            # Initialize cipher with shared key
-            self.cipher = AESGCM256(shared_key)
-            
-            print(f"   Shared key established: {shared_key[:16].hex()}...")
-            return True
-            
-        except Exception as e:
-            print(f"   Error during key exchange: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-    
-    def _send_data(self, data: bytes):
-        """Send length-prefixed data"""
-        length = len(data).to_bytes(4, 'big')
-        self.socket.sendall(length + data)
-    
-    def _recv_data(self) -> bytes:
-        """Receive length-prefixed data"""
-        length_bytes = self._recv_exact(4)
-        if not length_bytes:
-            return None
-        length = int.from_bytes(length_bytes, 'big')
-        return self._recv_exact(length)
-    
-    def _recv_exact(self, n: int) -> bytes:
-        """Receive exactly n bytes"""
-        data = b''
-        while len(data) < n:
-            chunk = self.socket.recv(n - len(data))
-            if not chunk:
-                return None
-            data += chunk
-        return data
+            c_ep, c_kp, c_ks = self._kex.generate_keypairs()
+            self._log(f'  Client ECDH pub: {len(c_ep)} B | '
+                      f'Client Kyber pub: {len(c_kp)} B', D)
 
-    def get_stats(self) -> dict:
-        """Get VPN session statistics"""
-        if self.cipher:
-            return self.cipher.get_stats()
-        return {}
-    
-    def send_encrypted(self, data: bytes) -> bool:
-        """
-        Encrypt and send data through VPN tunnel
-        
-        Args:
-            data: Plaintext data to send
-            
-        Returns:
-            bool: True if sent successfully
-        """
-        if not self.cipher:
-            print("❌ Not connected or key exchange not complete")
-            return False
-        
-        try:
-            encrypted = self.cipher.encrypt(data)
-            self._send_data(encrypted)
+            # Send our public keys first
+            self._send_data(c_ep)
+            self._send_data(c_kp)
+
+            # Receive server public keys
+            s_ep = self._recv_data()
+            s_kp = self._recv_data()
+            self._log(f'  Server ECDH pub: {len(s_ep)} B | '
+                      f'Server Kyber pub: {len(s_kp)} B', D)
+
+            # Encapsulate + send Kyber ciphertext
+            t0 = time.perf_counter()
+            kyber_ct, session_key = self._kex.initiate_exchange(s_ep, s_kp)
+            kex_ms = (time.perf_counter() - t0) * 1000
+            self._send_data(kyber_ct)
+
+            self.session_key = session_key
+            self.cipher = AESGCM256(session_key)
+
+            self._log(f'Key exchange done in {kex_ms:.1f} ms  '
+                      f'key={session_key.hex()[:16]}...', G)
+            print(f"\n  {G}Secure tunnel established!{X}")
+            print(f"  {D}Algorithm : Kyber-768 + ECDH P-384 (Hybrid){X}")
+            print(f"  {D}Session   : AES-256-GCM authenticated encryption{X}")
+            print(f"  {D}Kyber CT  : {len(kyber_ct)} bytes sent  |  "
+                  f"ECDH pub: {len(c_ep)} bytes sent{X}\n")
             return True
-        except Exception as e:
-            print(f"❌ Send error: {e}")
+
+        except Exception as exc:
+            self._log(f'Handshake error: {exc}', R)
             return False
-    
-    def receive_encrypted(self) -> bytes:
-        """
-        Receive and decrypt data from VPN tunnel
-        
-        Returns:
-            bytes: Decrypted data, or None on error
-        """
-        if not self.cipher:
-            return None
-        
+
+    # ── send / receive ─────────────────────────────────────────────────────────
+
+    def send(self, plaintext: bytes):
+        ct = self.cipher.encrypt(plaintext)
+        msg = plaintext.decode('utf-8', errors='replace')
+        print(f"\n  {G}┌─ SEND {'─'*52}┐{X}")
+        print(f"  {G}│{X} {B}Plain  [{len(plaintext):4d} B]:{X} {msg[:65]}")
+        print(f"  {G}│{X} {D}Wire   [{len(ct):4d} B]:{X} {ct.hex()[:48]}…")
+        print(f"  {G}│{X} {D}Nonce  [  12 B]  Counter [  8 B]  GCM-Tag [ 16 B]{X}")
+        print(f"  {G}└{'─'*58}┘{X}")
+        self._send_data(ct)
+
+    def recv(self):
+        raw = self._recv_data()
         try:
-            encrypted = self._recv_data()
-            if not encrypted:
-                return None
-            
-            decrypted = self.cipher.decrypt(encrypted)
-            return decrypted
-            
-        except TamperingError as e:
-            print(f"🔴 SECURITY ALERT: {e}")
+            pt = self.cipher.decrypt(raw)
+            msg = pt.decode('utf-8', errors='replace')
+            print(f"  {C}┌─ RECV {'─'*52}┐{X}")
+            print(f"  {C}│{X} {D}Wire   [{len(raw):4d} B]:{X} {raw.hex()[:48]}…")
+            print(f"  {C}│{X} {C}Plain  [{len(pt):4d} B]:{X} {msg[:65]}")
+            print(f"  {C}└{'─'*58}┘{X}")
+            return pt
+        except TamperingError:
+            print(f"  {R}┌─ ⚡ TAMPERING on server response! {'─'*23}┐{X}")
+            print(f"  {R}│{X} GCM tag invalid — server/MITM tampered the ACK")
+            print(f"  {R}└{'─'*58}┘{X}")
             return None
-        except ReplayAttackError as e:
-            print(f"🔴 SECURITY ALERT: {e}")
+        except ReplayAttackError:
+            print(f"  {R}┌─ 🔁 REPLAY on server response! {'─'*26}┐{X}")
+            print(f"  {R}└{'─'*58}┘{X}")
             return None
-        except Exception as e:
-            print(f"❌ Receive error: {e}")
-            return None
-    
-    def start_interactive(self):
-        """
-        Start interactive mode - send messages through tunnel
-        """
+
+    # ── interactive & demo modes ──────────────────────────────────────────────
+
+    def interactive(self):
         self.running = True
-        
-        # Start receiver thread
-        receiver = threading.Thread(target=self._receiver_loop, daemon=True)
-        receiver.start()
-        
-        print("\n" + "=" * 50)
-        print("🔐 VPN Tunnel Active - Type messages to send")
-        print("   Type 'quit' to disconnect")
-        print("=" * 50 + "\n")
-        
+        threading.Thread(target=self._recv_loop, daemon=True).start()
+
+        print(f"  {B}Type a message and press Enter to send.{X}")
+        print(f"  {D}Commands: 'quit' to exit | 'stats' for stats{X}\n")
+
         try:
             while self.running:
-                message = input("📤 You: ")
-                if message.lower() == 'quit':
-                    break
-                
-                if message.lower() == 'stats':
-                    print(f"📊 Stats: {self.get_stats()}")
+                msg = input(f'  {B}YOU>{X} ').strip()
+                if not msg:
                     continue
-
-                if message:
-                    if not self.send_encrypted(message.encode()):
-                        print("❌ Failed to send message (connection lost?)")
-                        break
-        except KeyboardInterrupt:
-            print("\n\n⚡ Interrupted")
+                if msg.lower() == 'quit':
+                    break
+                if msg.lower() == 'stats':
+                    print(f'  Stats: {self.cipher.get_stats()}')
+                    continue
+                self.send(msg.encode())
+        except (KeyboardInterrupt, EOFError):
+            pass
         finally:
             self.disconnect()
-    
-    def _receiver_loop(self):
-        """Background thread to receive messages"""
+
+    def run_demo(self, messages=None):
+        if messages is None:
+            messages = [
+                b'Hello Server! Quantum-safe tunnel is live.',
+                b'CLASSIFIED: Troop movement at 0600 UTC - Sector 7',
+                b'EHR: Patient 00421 critical alert acknowledged',
+                b'SCADA: Emergency shutdown sequence - auth OK',
+                b'Goodbye! Tunnel closing.',
+            ]
+        print(f"  {B}Running automated demo ({len(messages)} messages)...{X}\n")
+        for i, msg in enumerate(messages, 1):
+            print(f"  {D}--- Message {i}/{len(messages)} ---{X}")
+            self.send(msg)
+            resp = self.recv()
+            time.sleep(0.5)
+        self.disconnect()
+
+    def _recv_loop(self):
         while self.running:
             try:
-                data = self.receive_encrypted()
-                if data:
-                    print(f"\n📥 Server: {data.decode()}")
-                    print("📤 You: ", end='', flush=True)
-            except:
+                raw = self._recv_data()
+                if not raw:
+                    break
+                try:
+                    pt = self.cipher.decrypt(raw)
+                    msg = pt.decode('utf-8', errors='replace')
+                    print(f"\n  {C}┌─ RECV ({'─'*52})┐{X}")
+                    print(f"  {C}│{X} {D}Wire  [{len(raw):4d} B]:{X} {raw.hex()[:48]}…")
+                    print(f"  {C}│{X} {C}Plain [{len(pt):4d} B]:{X} {msg[:65]}")
+                    print(f"  {C}└{'─'*58}┘{X}")
+                    print(f'  {B}YOU>{X} ', end='', flush=True)
+                except Exception:
+                    pass
+            except Exception:
                 break
-    
+
     def disconnect(self):
-        """Disconnect from VPN server"""
         self.running = False
-        if self.socket:
-            try:
-                self.socket.close()
-            except:
-                pass
-        print("🔌 Disconnected from VPN server")
+        try:
+            self.sock.close()
+        except Exception:
+            pass
+        print(f"\n  {Y}Disconnected.{X}")
 
-
-def capture_packets_demo():
-    """
-    Demonstrate packet capture with Scapy
-    
-    ⚠️ Requires Administrator privileges!
-    """
-    print("=" * 60)
-    print("📡 Packet Capture Demo (Scapy)")
-    print("⚠️  Requires Administrator/root privileges!")
-    print("=" * 60)
-    
-    try:
-        from scapy.all import sniff, IP, TCP, UDP, Raw
-        
-        def packet_callback(packet):
-            if IP in packet:
-                src = packet[IP].src
-                dst = packet[IP].dst
-                proto = "TCP" if TCP in packet else "UDP" if UDP in packet else "Other"
-                
-                print(f"\n📦 Captured Packet:")
-                print(f"   Source:      {src}")
-                print(f"   Destination: {dst}")
-                print(f"   Protocol:    {proto}")
-                
-                if Raw in packet:
-                    payload = bytes(packet[Raw])
-                    print(f"   Payload:     {payload[:50]}..." if len(payload) > 50 else f"   Payload:     {payload}")
-        
-        print("\n🔍 Capturing 5 packets... (this may take a moment)")
-        sniff(prn=packet_callback, count=5, store=False)
-        print("\n✅ Capture complete!")
-        
-    except PermissionError:
-        print("\n❌ Permission denied! Run as Administrator.")
-    except ImportError:
-        print("\n❌ Scapy not installed. Run: pip install scapy")
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
+    def get_stats(self):
+        return self.cipher.get_stats() if self.cipher else {}
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Quantum-Safe VPN Client')
-    parser.add_argument('--server', '-s', default='localhost',
-                        help='VPN server address (default: localhost)')
-    parser.add_argument('--port', '-p', type=int, default=5000,
-                        help='VPN server port (default: 5000)')
-    parser.add_argument('--capture', '-c', action='store_true',
-                        help='Run packet capture demo')
-    parser.add_argument('--test', action='store_true',
-                        help='Run in test mode')
-    
-    args = parser.parse_args()
-    
-    if args.capture:
-        capture_packets_demo()
-        return
-    
-    print("=" * 60)
-    print("🛡️  Quantum-Safe VPN Client")
-    print("   Using: Kyber + ECDH + AES-256-GCM")
-    print("=" * 60)
-    
-    client = VPNClient(args.server, args.port)
-    
-    if client.connect():
-        if args.test:
-            # Test mode - send one message and exit
-            client.send_encrypted(b"Test message from client!")
-            response = client.receive_encrypted()
-            if response:
-                print(f"📥 Response: {response.decode()}")
-            client.disconnect()
-        else:
-            # Interactive mode
-            client.start_interactive()
-    else:
-        print("\n❌ Failed to connect to VPN server")
+    ap = argparse.ArgumentParser(description='Quantum-Safe VPN Client')
+    ap.add_argument('--host', default='localhost',
+                    help='VPN server IP  (default: localhost)')
+    ap.add_argument('--port', type=int, default=5000,
+                    help='VPN server port (default: 5000)')
+    ap.add_argument('--demo', action='store_true',
+                    help='Run automated 5-message demo then exit')
+    a = ap.parse_args()
+
+    client = VPNClient(host=a.host, port=a.port)
+    if not client.connect():
         sys.exit(1)
 
+    if a.demo:
+        client.run_demo()
+    else:
+        client.interactive()
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()

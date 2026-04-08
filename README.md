@@ -98,13 +98,13 @@ sequenceDiagram
 | Purpose | Technology | Quantum-Safe? |
 |---------|------------|---------------|
 | Language | Python 3.x | - |
-| **Key Exchange** | **Kyber-768 (NIST PQC Standard)** | ✅ Yes |
-| Hybrid KEX | Kyber + ECDH (defense in depth) | ✅ Yes |
+| **Key Exchange** | **Kyber-768 via `kyber-py` (NIST FIPS 203 / ML-KEM)** | ✅ Yes |
+| Hybrid KEX | Kyber-768 + ECDH P-384 (defense in depth) | ✅ Yes |
 | Encryption | AES-256-GCM | ✅ (Grover-resistant) |
 | Hashing | SHA-384/SHA-256 | ✅ (256-bit security) |
 | Packet Capture | Scapy | - |
 | Networking | TCP Sockets | - |
-| Attack Testing | Wireshark | - |
+| Attack Testing | Wireshark + built-in demos | - |
 
 ---
 
@@ -119,10 +119,11 @@ mini-vpn/
 │   ├── vpn_server.py         # Main server with forwarding
 │   └── __init__.py
 ├── crypto/                    # ⚡ Core Cryptography Module
-│   ├── kyber_kex.py          # Post-Quantum Key Exchange
-│   ├── hybrid_kex.py         # Kyber + ECDH hybrid
-│   ├── aes_gcm.py            # AES-256-GCM encryption
-│   ├── classical_kex.py      # ECDH (for comparison)
+│   ├── kyber_kex.py          # Real Kyber-768 (NIST FIPS 203) via kyber-py
+│   ├── hybrid_kex.py         # Kyber-768 + ECDH P-384 hybrid
+│   ├── aes_gcm.py            # AES-256-GCM + sliding-window replay protection
+│   ├── classical_kex.py      # ECDH P-384 (quantum-vulnerable, for comparison)
+│   ├── benchmarks.py         # Kyber vs ECDH performance benchmarks
 │   └── __init__.py
 ├── attacks/                   # 🔴 Attack Demonstrations
 │   ├── sniffing_demo.md      # Wireshark capture guide
@@ -136,7 +137,9 @@ mini-vpn/
 │   ├── comparison.md         # Classical vs PQC
 │   └── diagrams/
 ├── tests/
-│   └── test_crypto.py        # Cryptography unit tests
+│   └── test_crypto.py        # 36 unit + integration + benchmark tests
+├── run_demo.py                # Master demo runner (all sections)
+├── simple_demo.py             # Interactive single-session demo
 ├── requirements.txt
 └── README.md
 ```
@@ -231,20 +234,24 @@ sequenceDiagram
 ```
 
 ```python
-# Using pqcrypto or liboqs-python
-from pqcrypto.kem.kyber768 import generate_keypair, encrypt, decrypt
+# Using kyber-py — real CRYSTALS-Kyber768 (NIST FIPS 203)
+from crypto.kyber_kex import KyberKEM
 
 # Server generates keypair
-public_key, secret_key = generate_keypair()
+server = KyberKEM()
+server_pk, server_sk = server.generate_keypair()
+# server_pk = 1,184 bytes | server_sk = 2,400 bytes
 
 # Client encapsulates
-ciphertext, shared_secret_client = encrypt(public_key)
+client = KyberKEM()
+ciphertext, client_shared_secret = client.encapsulate(server_pk)
+# ciphertext = 1,088 bytes | shared_secret = 32 bytes
 
-# Server decapsulates  
-shared_secret_server = decrypt(secret_key, ciphertext)
+# Server decapsulates
+server_shared_secret = server.decapsulate(server_sk, ciphertext)
 
-# Both have same shared_secret!
-assert shared_secret_client == shared_secret_server
+# Both have identical 32-byte AES-256 session key!
+assert client_shared_secret == server_shared_secret  # ✅ Always true
 ```
 
 ✔ No secret key sent over network  
@@ -455,46 +462,78 @@ flowchart LR
 ### Prerequisites
 
 ```bash
-# Windows (PowerShell as Administrator)
+# Install all dependencies (Python 3.9+)
 pip install -r requirements.txt
 
-# Required packages:
-# - cryptography>=41.0.0
-# - scapy>=2.5.0
-# - pqcrypto (or liboqs-python for Kyber)
+# Key packages:
+# - kyber-py>=1.2.0        Real CRYSTALS-Kyber768 (NIST FIPS 203)
+# - cryptography>=41.0.0   ECDH, AES-256-GCM
+# - scapy>=2.5.0           Packet capture
+# - pytest>=7.0.0          Test suite
 ```
 
-### Running the VPN
+### Master Demo Runner
+
+```bash
+# Full interactive demo (all 7 sections)
+py -3 run_demo.py
+
+# Attack demonstrations only
+py -3 run_demo.py --attacks
+
+# Performance benchmark only
+py -3 run_demo.py --bench
+
+# Full demo, skip extended benchmark
+py -3 run_demo.py --quick
+```
+
+### Running the VPN Server + Client
 
 **Terminal 1 - Start Server**:
 ```bash
-cd mini-vpn
-python -m server.vpn_server --port 5000
+py -3 -m server.vpn_server
 ```
 
 **Terminal 2 - Start Client**:
 ```bash
-cd mini-vpn
-python -m client.vpn_client --server localhost --port 5000
+py -3 -m client.vpn_client
+```
+
+### Running Tests
+
+```bash
+# Full test suite (36 tests)
+py -3 -m pytest tests/test_crypto.py -v
+
+# With benchmark output
+py -3 -m pytest tests/test_crypto.py -v -s
 ```
 
 ### Running Attack Demos
 
 ```bash
 # Replay Attack Demo
-python attacks/replay_attack.py
+py -3 attacks/replay_attack.py
 
-# Tampering Demo
-python attacks/tampering_demo.py
+# Tampering Demo  
+py -3 attacks/tampering_demo.py
 ```
 
-### 🎮 Simple Interactive Demo
-
-For a quick, interactive demonstration of all features (Encryption, Tampering, Replay Protection) in one script:
+### Individual Module Demos
 
 ```bash
-# General Demo
-python simple_demo.py
+# Kyber-768 key exchange demo
+py -3 crypto/kyber_kex.py
+
+# Hybrid Kyber + ECDH demo
+py -3 crypto/hybrid_kex.py
+
+# Standalone benchmarks
+py -3 crypto/benchmarks.py
+
+# Simple interactive session demo
+py -3 simple_demo.py
 ```
 
 ---

@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quantum-Safe VPN — Live Demo</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --c-bg:     #0a0d14;
+    --c-panel:  #111520;
+    --c-border: #1e2535;
+    --c-green:  #10b981;
+    --c-cyan:   #06b6d4;
+    --c-red:    #ef4444;
+    --c-yellow: #f59e0b;
+    --c-purple: #a855f7;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--c-bg); font-family: 'Segoe UI', system-ui, sans-serif; margin:0; padding:12px; }
+  .mono { font-family: 'Courier New', monospace; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width:5px; height:5px; }
+  ::-webkit-scrollbar-track { background:#0f1420; }
+  ::-webkit-scrollbar-thumb { background:#2d3748; border-radius:3px; }
+
+  /* topology */
+  #topo-wrap { position:relative; height:100px; overflow:hidden; }
+  .topo-node {
+    position:absolute; top:50%; transform:translateY(-50%);
+    display:flex; flex-direction:column; align-items:center; gap:4px; z-index:2;
+  }
+  .topo-icon {
+    width:52px; height:52px; border-radius:12px; display:flex;
+    align-items:center; justify-content:center; font-size:22px;
+    border:2px solid; transition: border-color .4s, box-shadow .4s;
+  }
+  .node-client  { left:4%; }
+  .node-mitm    { left:50%; transform:translate(-50%,-50%); opacity:0; transition:opacity .5s; }
+  .node-server  { right:4%; }
+
+  .topo-line {
+    position:absolute; top:50%; height:2px;
+    background: linear-gradient(90deg, #1e40af 0%, #0891b2 50%, #10b981 100%);
+    transition: all .4s;
+  }
+  .line-direct { left:14%; right:14%; transform:translateY(-50%); }
+  .line-left   { left:14%; right:54%; transform:translateY(-50%); }
+  .line-right  { left:46%; right:14%; transform:translateY(-50%); }
+
+  /* packet dot */
+  .pkt-dot {
+    position:absolute; top:50%; width:10px; height:10px; border-radius:50%;
+    background:var(--c-green); box-shadow:0 0 8px var(--c-green);
+    transform:translateY(-50%); pointer-events:none; z-index:3;
+    animation: none;
+  }
+  .pkt-dot.red   { background:var(--c-red);    box-shadow:0 0 8px var(--c-red); }
+  .pkt-dot.amber { background:var(--c-yellow);  box-shadow:0 0 8px var(--c-yellow); }
+  @keyframes pkt-move-direct {
+    0%   { left:14%; opacity:1; }
+    100% { left:86%; opacity:0; }
+  }
+  @keyframes pkt-move-left {
+    0%   { left:14%; opacity:1; }
+    100% { left:46%; opacity:0; }
+  }
+  @keyframes pkt-move-right {
+    0%   { left:54%; opacity:1; }
+    100% { left:86%; opacity:0; }
+  }
+
+  /* stat cards */
+  .scard {
+    background:var(--c-panel); border:1px solid var(--c-border);
+    border-radius:10px; padding:12px 10px; text-align:center; position:relative; overflow:hidden;
+  }
+  .scard::before {
+    content:''; position:absolute; inset:0; opacity:.05;
+    background:radial-gradient(circle at 50% 0%, white, transparent 70%);
+  }
+
+  /* message cards */
+  .msg-card {
+    border-radius:8px; border:1px solid var(--c-border);
+    background:var(--c-panel); margin-bottom:6px;
+    animation: fadeIn .35s ease-out;
+  }
+  @keyframes fadeIn { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:translateY(0)} }
+  .msg-card.attack { border-color:#7f1d1d; background:#150e0e; animation:fadeIn .35s ease-out, attackPulse .6s ease-out; }
+  @keyframes attackPulse { 0%{box-shadow:0 0 0 0 rgba(239,68,68,.5)} 100%{box-shadow:0 0 16px 0 rgba(239,68,68,0)} }
+  .msg-card.kex { border-color:#164e63; background:#0c1a22; }
+
+  /* hex preview */
+  .hex-val { word-break:break-all; letter-spacing:.04em; line-height:1.6; }
+
+  /* conn row */
+  .conn-row { display:flex; align-items:center; justify-content:space-between;
+    padding:6px 10px; border-radius:6px; background:#0f1520; border:1px solid var(--c-border);
+    margin-bottom:4px; font-size:.72rem; }
+  .conn-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  /* badge */
+  .badge { display:inline-block; padding:1px 7px; border-radius:999px; font-size:.68rem; font-weight:700; }
+
+  /* flash helpers */
+  .flash-g { animation: flashG .7s ease-out; }
+  @keyframes flashG { 0%{background:#052e16} 100%{background:var(--c-panel)} }
+  .flash-r { animation: flashR .7s ease-out; }
+  @keyframes flashR { 0%{background:#450a0a} 100%{background:#150e0e} }
+
+  /* scrollable panes */
+  .scroll-pane { overflow-y:auto; }
+  .scroll-pane::-webkit-scrollbar { width:4px; }
+</style>
+</head>
+<body class="text-gray-200">
+
+<!-- ══ HEADER ═══════════════════════════════════════════════════════════ -->
+<div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:12px;padding:10px 16px;margin-bottom:10px"
+     class="flex items-center justify-between">
+  <div>
+    <h1 class="text-xl font-bold text-cyan-400 leading-tight">🔐 Quantum-Safe VPN — Live Demo</h1>
+    <p class="text-gray-500 text-xs">Kyber-768 (NIST FIPS 203) + ECDH P-384 + AES-256-GCM | Real-Time Network Monitor</p>
+  </div>
+  <div class="flex items-center gap-3">
+    <div id="status-dot" class="w-3 h-3 rounded-full bg-yellow-400" style="animation:pulse 2s infinite"></div>
+    <span id="status-text" class="text-xs text-yellow-300 font-medium">Waiting for server…</span>
+    <div class="text-right text-xs text-gray-500 ml-3">
+      <div id="server-addr" class="font-mono">Server: —</div>
+      <div id="clock" class="font-mono text-gray-400"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ STATS ROW ════════════════════════════════════════════════════════ -->
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px">
+  <div class="scard">
+    <div class="text-2xl font-bold text-green-400 mono" id="stat-packets">0</div>
+    <div class="text-xs text-gray-500 mt-0.5">Pkts Decrypted</div>
+  </div>
+  <div class="scard">
+    <div class="text-2xl font-bold text-red-400 mono" id="stat-attacks">0</div>
+    <div class="text-xs text-gray-500 mt-0.5">Attacks Blocked</div>
+  </div>
+  <div class="scard">
+    <div class="text-2xl font-bold text-cyan-400 mono" id="stat-clients">0</div>
+    <div class="text-xs text-gray-500 mt-0.5">Clients</div>
+  </div>
+  <div class="scard">
+    <div class="text-2xl font-bold text-purple-400 mono" id="stat-kex">0</div>
+    <div class="text-xs text-gray-500 mt-0.5">Key Exchanges</div>
+  </div>
+  <div class="scard">
+    <div class="text-2xl font-bold text-yellow-400 mono" id="stat-bytes">0 B</div>
+    <div class="text-xs text-gray-500 mt-0.5">Data Encrypted</div>
+  </div>
+</div>
+
+<!-- ══ TOPOLOGY ═════════════════════════════════════════════════════════ -->
+<div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:12px;padding:10px 16px;margin-bottom:10px">
+  <div class="flex items-center justify-between mb-1">
+    <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">📡 Live Network Topology</span>
+    <span id="topo-status" class="text-xs text-gray-600">No active connection</span>
+  </div>
+  <div id="topo-wrap">
+    <!-- direct line (shown when no MITM) -->
+    <div class="topo-line line-direct" id="line-direct"></div>
+    <!-- split lines (shown when MITM active) -->
+    <div class="topo-line line-left"  id="line-left"  style="display:none"></div>
+    <div class="topo-line line-right" id="line-right" style="display:none"></div>
+
+    <!-- Client node -->
+    <div class="topo-node node-client">
+      <div class="topo-icon" id="icon-client"
+           style="border-color:#1e40af;background:#0c1a40;color:#60a5fa">💻</div>
+      <span class="text-xs text-blue-300 font-bold">CLIENT</span>
+      <span id="client-label" class="text-xs text-gray-600 mono">—</span>
+    </div>
+
+    <!-- MITM node (hidden until MITM detected) -->
+    <div class="topo-node node-mitm" id="node-mitm">
+      <div class="topo-icon" style="border-color:#9a3412;background:#2c0f0f;color:#fb923c">👁️</div>
+      <span class="text-xs text-orange-400 font-bold">MITM</span>
+      <span class="text-xs text-orange-600 mono">port 5001</span>
+    </div>
+
+    <!-- Server node -->
+    <div class="topo-node node-server">
+      <div class="topo-icon" id="icon-server"
+           style="border-color:#065f46;background:#0c2a1e;color:#34d399">🖥️</div>
+      <span class="text-xs text-green-400 font-bold">SERVER</span>
+      <span id="server-label" class="text-xs text-gray-600 mono">—</span>
+    </div>
+
+    <!-- Packet dots (created dynamically) -->
+  </div>
+  <!-- legend -->
+  <div class="flex gap-4 mt-1 justify-center text-xs text-gray-600">
+    <span>🟢 Kyber-768 key exchange (1,184 B pk + 1,088 B ct)</span>
+    <span>🔵 AES-256-GCM encrypted packets</span>
+    <span>🔴 Blocked attack packet</span>
+  </div>
+</div>
+
+<!-- ══ MAIN CONTENT ══════════════════════════════════════════════════════ -->
+<div style="display:grid;grid-template-columns:1fr 1fr 300px;gap:10px;height:420px">
+
+  <!-- LEFT: Wire vs Plaintext dual pane -->
+  <div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:12px;padding:10px;display:flex;flex-direction:column">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">🔀 Message Flow — Wire vs Decrypted</span>
+      <button onclick="clearMessages()" style="font-size:.65rem;color:#4a5568;border:1px solid #2d3748;padding:1px 6px;border-radius:4px">clear</button>
+    </div>
+    <!-- column headers -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+      <div style="background:#1a0e0e;border:1px solid #7f1d1d;border-radius:6px;padding:4px 8px;text-align:center">
+        <span class="text-xs font-bold text-red-400">👁️ WIRE (what attacker sees)</span>
+      </div>
+      <div style="background:#0a1f12;border:1px solid #166534;border-radius:6px;padding:4px 8px;text-align:center">
+        <span class="text-xs font-bold text-green-400">🔓 DECRYPTED (what server reads)</span>
+      </div>
+    </div>
+    <div id="msg-pane" class="scroll-pane flex-1" style="overflow-y:auto">
+      <div style="text-align:center;color:#374151;font-size:.8rem;margin-top:60px">
+        Waiting for messages…<br><span style="font-size:.7rem">Connect a client to see live data here</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: Live event log -->
+  <div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:12px;padding:10px;display:flex;flex-direction:column">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">📋 Live Event Log</span>
+      <span id="evt-count" class="text-xs text-gray-600">0 events</span>
+    </div>
+    <div id="event-log" class="scroll-pane flex-1" style="overflow-y:auto;font-size:.72rem;line-height:1.5">
+      <div style="text-align:center;color:#374151;margin-top:60px">Waiting for events…</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Security info + connections -->
+  <div style="display:flex;flex-direction:column;gap:8px;overflow-y:auto">
+
+    <!-- Active connections -->
+    <div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:12px;padding:10px">
+      <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">🌐 Active Connections</div>
+      <div id="conn-list">
+        <div style="font-size:.7rem;color:#4a5568;text-align:center;padding:8px">None yet</div>
+      </div>
+    </div>
+
+    <!-- Security stack -->
+    <div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:12px;padding:10px">
+      <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">🛡️ Security Stack</div>
+      <div style="font-size:.7rem;display:flex;flex-direction:column;gap:5px">
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">Key Exchange</span>
+          <span class="badge" style="background:#164e63;color:#67e8f9">Kyber-768</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">Hybrid</span>
+          <span class="badge" style="background:#1e3a5f;color:#93c5fd">ECDH P-384</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">Encryption</span>
+          <span class="badge" style="background:#052e16;color:#4ade80">AES-256-GCM</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">Replay Guard</span>
+          <span class="badge" style="background:#3b0764;color:#d8b4fe">64-pkt Window</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">NIST Standard</span>
+          <span class="badge" style="background:#451a03;color:#fcd34d">FIPS 203 (2024)</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">Security Level</span>
+          <span class="badge" style="background:#052e16;color:#4ade80">~161 qubits</span>
+        </div>
+      </div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid #1e2535;font-size:.65rem;color:#6b7280">
+        ECDH alone → <span style="color:#f87171;font-weight:700">broken</span> by Shor's Algo<br>
+        Kyber-768 → <span style="color:#4ade80;font-weight:700">secure</span> vs quantum
+      </div>
+    </div>
+
+    <!-- Key sizes -->
+    <div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:12px;padding:10px">
+      <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">📏 Kyber-768 Sizes</div>
+      <div style="font-size:.7rem;font-family:monospace;display:flex;flex-direction:column;gap:3px">
+        <div class="flex justify-between"><span class="text-gray-500">Public key</span><span class="text-cyan-300">1,184 B</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">Secret key</span><span class="text-cyan-300">2,400 B</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">Ciphertext</span><span class="text-cyan-300">1,088 B</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">Shared secret</span><span class="text-cyan-300">32 B</span></div>
+        <div class="flex justify-between" style="border-top:1px solid #1e2535;margin-top:3px;padding-top:3px"><span class="text-gray-600">ECDH pub</span><span class="text-gray-500">97 B</span></div>
+        <div class="flex justify-between"><span class="text-gray-600">Pkt overhead</span><span class="text-gray-500">36 B</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ BOTTOM: HOW TO RUN ════════════════════════════════════════════════ -->
+<div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:12px;padding:10px 14px;margin-top:10px">
+  <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">🚀 3-Terminal Demo</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.7rem;font-family:monospace">
+    <div style="background:#0f1520;border:1px solid #166534;border-radius:6px;padding:8px">
+      <div class="text-green-400 font-bold mb-1">① Server + Dashboard (running)</div>
+      <div class="text-gray-300">py -3 launch_demo.py</div>
+    </div>
+    <div style="background:#0f1520;border:1px solid #164e63;border-radius:6px;padding:8px">
+      <div class="text-cyan-400 font-bold mb-1">② VPN Client</div>
+      <div class="text-gray-300">py -3 client/vpn_client.py</div>
+      <div class="text-gray-300">  --host <span id="ip-hint" class="text-yellow-400">LAN_IP</span> --demo</div>
+    </div>
+    <div style="background:#0f1520;border:1px solid #7f1d1d;border-radius:6px;padding:8px">
+      <div class="text-red-400 font-bold mb-1">③ MITM Attacker (optional)</div>
+      <div class="text-gray-300">py -3 attacks/mitm_proxy.py</div>
+      <div class="text-gray-300">  --target <span id="ip-hint2" class="text-yellow-400">LAN_IP</span></div>
+      <div class="text-gray-500 mt-1">client uses --port 5001</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ JS ════════════════════════════════════════════════════════════════ -->
+<style>
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+</style>
+<script>
+// ── state ─────────────────────────────────────────────────────────────────
+const S = { packets:0, attacks:0, clients:0, kex:0, bytes:0,
+            activeClients:{}, mitm:false, evtCount:0 };
+
+// ── clock ─────────────────────────────────────────────────────────────────
+setInterval(()=>{ document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }, 500);
+
+// ── topology helpers ──────────────────────────────────────────────────────
+function topoSetMITM(on) {
+  S.mitm = on;
+  document.getElementById('node-mitm').style.opacity = on ? '1' : '0';
+  document.getElementById('line-direct').style.display = on ? 'none' : 'block';
+  document.getElementById('line-left').style.display   = on ? 'block' : 'none';
+  document.getElementById('line-right').style.display  = on ? 'block' : 'none';
+  document.getElementById('topo-status').textContent =
+    on ? '⚠️ MITM proxy detected on port 5001' : '✅ Direct encrypted tunnel';
+  document.getElementById('topo-status').style.color = on ? '#f97316' : '#10b981';
+}
+
+function firePacketDot(colour, viaMITM) {
+  const wrap = document.getElementById('topo-wrap');
+  const d = document.createElement('div');
+  d.className = 'pkt-dot' + (colour==='red'?' red':colour==='amber'?' amber':'');
+  wrap.appendChild(d);
+  if (viaMITM) {
+    d.style.animation = 'pkt-move-left .6s linear forwards';
+    setTimeout(()=>{
+      const d2 = document.createElement('div');
+      d2.className = d.className;
+      d2.style.animation = 'pkt-move-right .6s linear forwards';
+      wrap.appendChild(d2);
+      setTimeout(()=>d2.remove(), 650);
+    }, 620);
+  } else {
+    d.style.animation = 'pkt-move-direct .9s linear forwards';
+  }
+  setTimeout(()=>d.remove(), viaMITM ? 1300 : 950);
+}
+
+// ── stat update ───────────────────────────────────────────────────────────
+function addStats(ev) {
+  if (ev.type === 'message')        { S.packets++; S.bytes += ev.pkt_bytes||0; }
+  if (ev.type === 'attack')         S.attacks++;
+  if (ev.type === 'client_connect') S.clients++;
+  if (ev.type === 'kex_done')       S.kex++;
+  document.getElementById('stat-packets').textContent = S.packets;
+  document.getElementById('stat-attacks').textContent = S.attacks;
+  document.getElementById('stat-clients').textContent = S.clients;
+  document.getElementById('stat-kex').textContent     = S.kex;
+  document.getElementById('stat-bytes').textContent   = fmtBytes(S.bytes);
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return n+' B';
+  if (n < 1048576) return (n/1024).toFixed(1)+' KB';
+  return (n/1048576).toFixed(2)+' MB';
+}
+
+// ── connections panel ─────────────────────────────────────────────────────
+function renderConns() {
+  const el = document.getElementById('conn-list');
+  const clients = Object.values(S.activeClients);
+  if (!clients.length) {
+    el.innerHTML = '<div style="font-size:.7rem;color:#4a5568;text-align:center;padding:8px">None</div>';
+    return;
+  }
+  el.innerHTML = clients.map(c => `
+    <div class="conn-row">
+      <div class="flex items-center gap-2">
+        <div class="conn-dot" style="background:${c.active?'#10b981':'#6b7280'}"></div>
+        <span class="mono text-gray-300">${c.id}</span>
+      </div>
+      <div class="flex gap-2 items-center">
+        <span style="font-size:.65rem;color:#6b7280">${c.pkts} pkts</span>
+        ${c.active?'<span class="badge" style="background:#052e16;color:#4ade80">ACTIVE</span>':'<span class="badge" style="background:#1c1917;color:#78716c">GONE</span>'}
+      </div>
+    </div>`).join('');
+}
+
+// ── dual message pane ─────────────────────────────────────────────────────
+function clearMessages() { document.getElementById('msg-pane').innerHTML = ''; }
+
+function addMessageRow(ev) {
+  const pane = document.getElementById('msg-pane');
+  // remove placeholder
+  const ph = pane.querySelector('[data-placeholder]');
+  if (ph) ph.remove();
+
+  const isAttack = ev.type === 'attack';
+  const hex = (ev.enc_preview||'').substring(0,48);
+  const wireColour = isAttack ? '#fca5a5' : '#9ca3af';
+  const wireLabel  = isAttack ? `⚠️ ${ev.kind} DETECTED` : '🔒 Encrypted ciphertext';
+  const plainColour = isAttack ? '#6b7280' : '#4ade80';
+  const plainContent = isAttack
+    ? `<span style="color:#f87171;font-weight:700">BLOCKED — ${ev.detail}</span>`
+    : `<span style="color:#4ade80">${escHtml(ev.content||'')}</span>`;
+
+  const card = document.createElement('div');
+  card.className = 'msg-card' + (isAttack?' attack':'');
+  card.innerHTML = `
+    <div style="padding:6px 8px;border-bottom:1px solid var(--c-border);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:.68rem;color:#6b7280">${ev.time||''} · ${escHtml(ev.client||'')}</span>
+      <span style="font-size:.68rem;color:${isAttack?'#f87171':'#60a5fa'}">${isAttack?'⚡ ATTACK':'📦 packet #'+S.packets}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+      <div style="padding:6px 8px;border-right:1px solid var(--c-border)">
+        <div style="font-size:.6rem;color:#9ca3af;margin-bottom:2px">${wireLabel}</div>
+        <div class="mono hex-val" style="font-size:.62rem;color:${wireColour};line-height:1.4">${hex}…</div>
+        <div style="font-size:.6rem;color:#6b7280;margin-top:2px">${ev.pkt_bytes||0} bytes on wire</div>
+      </div>
+      <div style="padding:6px 8px">
+        <div style="font-size:.6rem;color:#6b7280;margin-bottom:2px">🔓 Server decrypted</div>
+        <div style="font-size:.72rem;${plainContent.includes('BLOCKED')?'':'color:#e5e7eb'}">${plainContent}</div>
+      </div>
+    </div>`;
+  pane.appendChild(card);
+  pane.scrollTop = pane.scrollHeight;
+}
+
+function addKexRow(ev) {
+  const pane = document.getElementById('msg-pane');
+  const ph = pane.querySelector('[data-placeholder]');
+  if (ph) ph.remove();
+  const card = document.createElement('div');
+  card.className = 'msg-card kex';
+  card.innerHTML = `
+    <div style="padding:6px 8px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:.68rem;color:#0891b2;font-weight:700">🔑 Kyber-768 Handshake Complete</span>
+      <span style="font-size:.65rem;color:#6b7280">${ev.time||''}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:4px 8px 6px">
+      <div>
+        <div style="font-size:.6rem;color:#6b7280">Wire bytes exchanged</div>
+        <div class="mono" style="font-size:.68rem;color:#67e8f9">
+          pk: 1,184 B · ct: ${ev.kyber_ct_bytes||1088} B · ecdh: 97 B
+        </div>
+      </div>
+      <div>
+        <div style="font-size:.6rem;color:#6b7280">Session key (first 16 B)</div>
+        <div class="mono" style="font-size:.68rem;color:#fde047">${ev.key_preview||'…'}…</div>
+        <div style="font-size:.6rem;color:#4ade80">✓ Secret never on wire · ${ev.latency_ms||'?'} ms</div>
+      </div>
+    </div>`;
+  pane.appendChild(card);
+  pane.scrollTop = pane.scrollHeight;
+}
+
+// ── event log ─────────────────────────────────────────────────────────────
+let evtFirstSeen = true;
+function addToLog(ev) {
+  const log = document.getElementById('event-log');
+  if (evtFirstSeen) { log.innerHTML=''; evtFirstSeen=false; }
+  S.evtCount++;
+  document.getElementById('evt-count').textContent = S.evtCount+' events';
+
+  const colours = {
+    server_start:'#4ade80', client_connect:'#67e8f9', kex_start:'#c084fc',
+    kex_done:'#4ade80', message:'#e5e7eb', attack:'#f87171',
+    client_disconnect:'#fbbf24', error:'#f87171'
+  };
+  const icons = {
+    server_start:'🟢', client_connect:'🔌', kex_start:'🔑',
+    kex_done:'✅', message:'📨', attack:'⚡',
+    client_disconnect:'🔴', error:'❌'
+  };
+  const col = colours[ev.type]||'#9ca3af';
+  const icon = icons[ev.type]||'·';
+  let detail = '';
+  if (ev.type==='message')        detail = `<b>"${escHtml(ev.content||'')}"</b>`;
+  else if (ev.type==='kex_done')  detail = `${ev.algorithm||'Hybrid'} · ${ev.latency_ms}ms · key=${ev.key_preview}…`;
+  else if (ev.type==='attack')    detail = `<b style="color:#f87171">${ev.kind}</b> — ${ev.detail}`;
+  else if (ev.type==='server_start') detail = `${ev.host}:${ev.port}`;
+  else if (ev.type==='client_connect') detail = ev.client;
+  else if (ev.type==='client_disconnect') detail = ev.client;
+
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;padding:3px 4px;border-radius:4px;align-items:flex-start';
+  row.innerHTML = `
+    <span style="flex-shrink:0;color:${col}">${icon}</span>
+    <span style="flex-shrink:0;color:#4b5563;font-family:monospace">${ev.time||''}</span>
+    <span style="color:${col};flex:1;word-break:break-word">${detail||ev.type}</span>`;
+  if (ev.type==='attack') row.style.background='#1a0808';
+  else if (ev.type==='kex_done'||ev.type==='message') row.classList.add('flash-g');
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ── main event dispatcher ─────────────────────────────────────────────────
+function dispatch(ev) {
+  addStats(ev);
+  addToLog(ev);
+
+  if (ev.type === 'server_start') {
+    document.getElementById('status-dot').style.cssText='width:12px;height:12px;border-radius:50%;background:#10b981';
+    document.getElementById('status-text').textContent='Server online';
+    document.getElementById('status-text').style.color='#4ade80';
+    document.getElementById('server-addr').textContent=`${ev.host}:${ev.port}`;
+    document.getElementById('server-label').textContent=`${ev.host}:${ev.port}`;
+    document.getElementById('icon-server').style.borderColor='#10b981';
+    ['ip-hint','ip-hint2'].forEach(id=>document.getElementById(id).textContent=ev.host);
+    document.getElementById('topo-status').textContent='Server ready — waiting for client';
+    document.getElementById('topo-status').style.color='#4ade80';
+  }
+
+  if (ev.type === 'client_connect') {
+    S.activeClients[ev.client] = {id:ev.client, pkts:0, active:true};
+    document.getElementById('client-label').textContent = ev.client;
+    document.getElementById('icon-client').style.borderColor = '#2563eb';
+    // detect MITM from port number (port 5001 → via MITM)
+    if (ev.port && ev.port !== 5000) topoSetMITM(true);
+    renderConns();
+  }
+
+  if (ev.type === 'kex_done') {
+    document.getElementById('icon-client').style.borderColor = '#10b981';
+    addKexRow(ev);
+    firePacketDot('amber', S.mitm);
+  }
+
+  if (ev.type === 'message') {
+    if (S.activeClients[ev.client]) S.activeClients[ev.client].pkts++;
+    addMessageRow(ev);
+    renderConns();
+    firePacketDot('green', S.mitm);
+  }
+
+  if (ev.type === 'attack') {
+    addMessageRow(ev);
+    firePacketDot('red', S.mitm);
+    // flash server icon red
+    const si = document.getElementById('icon-server');
+    si.style.borderColor='#ef4444'; si.style.boxShadow='0 0 12px #ef4444';
+    setTimeout(()=>{ si.style.borderColor='#10b981'; si.style.boxShadow=''; }, 1200);
+  }
+
+  if (ev.type === 'client_disconnect') {
+    if (S.activeClients[ev.client]) S.activeClients[ev.client].active=false;
+    document.getElementById('icon-client').style.borderColor='#1e40af';
+    document.getElementById('client-label').textContent='disconnected';
+    renderConns();
+  }
+}
+
+// ── utility ───────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── SSE ───────────────────────────────────────────────────────────────────
+function connectSSE() {
+  const es = new EventSource('/api/stream');
+  es.onmessage = e => { try { dispatch(JSON.parse(e.data)); } catch(_){} };
+  es.onerror   = ()=> setTimeout(connectSSE, 3000);
+}
+connectSSE();
+</script>
+</body>
+</html>

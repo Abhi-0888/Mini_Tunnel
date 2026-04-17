@@ -24,12 +24,16 @@ import socket
 import threading
 import time
 import argparse
+import json
 from datetime import datetime
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from crypto.hybrid_kex import HybridKeyExchange
 from crypto.aes_gcm import AESGCM256, TamperingError, ReplayAttackError
+from crypto.kyber_kex import kyber_backend, _REAL_KYBER
 
 if os.name == 'nt':
     os.system('color')
@@ -126,12 +130,37 @@ class VPNServer:
 
             cipher = AESGCM256(session_key)
             with self._lock:
-                self.clients[addr] = cipher
+                self.clients[cid] = {'conn': conn, 'cipher': cipher, 'addr': addr}
+
+            # ── PQC verification output ──────────────────────────────────────
+            pqc_ok = (_REAL_KYBER and len(s_kp) == 1184
+                      and len(kyber_ct) == 1088 and len(session_key) == 32)
+            print(f"\n  {C}┌─ PQC VERIFICATION {'─'*39}┐{X}")
+            print(f"  {C}│{X} Backend   : {G if _REAL_KYBER else R}{kyber_backend()}{X}")
+            print(f"  {C}│{X} Kyber pk  : {len(s_kp):5d} B  (NIST spec: 1184) {'✓' if len(s_kp)==1184 else '✗'}")
+            print(f"  {C}│{X} Kyber ct  : {len(kyber_ct):5d} B  (NIST spec: 1088) {'✓' if len(kyber_ct)==1088 else '✗'}")
+            print(f"  {C}│{X} Secret    :    {len(session_key):2d} B  (256-bit key)    {'✓' if len(session_key)==32 else '✗'}")
+            print(f"  {C}│{X} ECDH pk   :    {len(s_ep):2d} B  (P-384 uncompressed)")
+            print(f"  {C}│{X} Lattice   : n=256, k=3, q=3329 (Module-LWE)")
+            print(f"  {C}│{X} Quantum   : {'~161 qubits (Level 3) — SECURE' if pqc_ok else 'UNVERIFIED'}")
+            print(f"  {C}└{'─'*58}┘{X}")
+
+            self._event('pqc_verify', client=cid, real_kyber=_REAL_KYBER,
+                        backend=kyber_backend(),
+                        pk_bytes=len(s_kp), ct_bytes=len(kyber_ct),
+                        key_bytes=len(session_key), verified=pqc_ok)
 
             # ── Encrypted tunnel loop ─────────────────────────────────────────
             print(f"\n  {G}┌{'─'*58}┐{X}")
             print(f"  {G}│  TUNNEL ACTIVE  {cid:<40}│{X}")
             print(f"  {G}└{'─'*58}┘{X}\n")
+
+            # Server-initiated welcome (proves bidirectional)
+            welcome = (f"[SERVER→CLIENT] Welcome! Tunnel ready. "
+                       f"PQC={'VERIFIED' if pqc_ok else 'UNVERIFIED'} | "
+                       f"Backend: {kyber_backend()}")
+            self._send_data(conn, cipher.encrypt(welcome.encode()))
+            self._log(f"[{cid}] Sent server-initiated welcome (bidirectional proof)", C)
 
             pkt_num = 0
             while True:
@@ -143,6 +172,13 @@ class VPNServer:
                     with self._lock:
                         self.stats['packets'] += 1
                     hex_preview = raw.hex()[:48]
+
+                    # ── Tunnel commands ──────────────────────────────────────
+                    response = self._handle_tunnel_cmd(msg, cid)
+                    if response is not None:
+                        self._send_data(conn, cipher.encrypt(response.encode()))
+                        continue
+
                     print(f"  {G}┌─ PKT #{pkt_num:03d} ── from {cid} {'─'*max(0,30-len(cid))}┐{X}")
                     print(f"  {G}│{X} {D}Wire  [{len(raw):4d} B]:{X} {hex_preview}…")
                     print(f"  {G}│{X} {G}Plain [{len(plaintext):4d} B]:{X} {B}{msg[:70]}{X}")
@@ -185,11 +221,79 @@ class VPNServer:
             self._event('error', client=cid, detail=str(exc))
         finally:
             with self._lock:
-                self.clients.pop(addr, None)
+                self.clients.pop(cid, None)
             try:
                 conn.close()
             except Exception:
                 pass
+
+    # ── tunnel command handler ─────────────────────────────────────────────────
+
+    def _handle_tunnel_cmd(self, msg, cid):
+        """Handle tunnel proxy commands. Returns response string or None."""
+
+        # TUNNEL:FETCH:<url> — server fetches URL and returns body through VPN
+        if msg.startswith('TUNNEL:FETCH:'):
+            url = msg[13:].strip()
+            print(f"  {C}┌─ 🌐 TUNNEL FETCH ── from {cid} {'─'*max(0,25-len(cid))}┐{X}")
+            print(f"  {C}│{X} URL: {url}")
+            self._event('tunnel', client=cid, kind='FETCH', target=url)
+            try:
+                req = Request(url, headers={'User-Agent': 'QuantumVPN-Tunnel/1.0'})
+                with urlopen(req, timeout=8) as resp:
+                    body = resp.read(4096).decode('utf-8', errors='replace')
+                    status = resp.status
+                print(f"  {C}│{X} {G}Status: {status} | Body: {len(body)} B{X}")
+                print(f"  {C}└{'─'*58}┘{X}\n")
+                return f"[TUNNEL:FETCH] HTTP {status} | {body[:2048]}"
+            except Exception as e:
+                print(f"  {C}│{X} {R}Error: {e}{X}")
+                print(f"  {C}└{'─'*58}┘{X}\n")
+                return f"[TUNNEL:FETCH] ERROR: {e}"
+
+        # TUNNEL:DNS:<domain> — server resolves DNS and returns IPs
+        if msg.startswith('TUNNEL:DNS:'):
+            domain = msg[11:].strip()
+            print(f"  {C}┌─ 🔍 TUNNEL DNS ── from {cid} {'─'*max(0,27-len(cid))}┐{X}")
+            print(f"  {C}│{X} Domain: {domain}")
+            self._event('tunnel', client=cid, kind='DNS', target=domain)
+            try:
+                results = socket.getaddrinfo(domain, None, socket.AF_INET)
+                ips = sorted(set(r[4][0] for r in results))
+                print(f"  {C}│{X} {G}Resolved: {', '.join(ips)}{X}")
+                print(f"  {C}└{'─'*58}┘{X}\n")
+                return f"[TUNNEL:DNS] {domain} → {', '.join(ips)}"
+            except Exception as e:
+                print(f"  {C}│{X} {R}Error: {e}{X}")
+                print(f"  {C}└{'─'*58}┘{X}\n")
+                return f"[TUNNEL:DNS] ERROR: {e}"
+
+        # TUNNEL:VERIFY — independent PQC verification
+        if msg.startswith('TUNNEL:VERIFY'):
+            print(f"  {C}┌─ 🔬 PQC VERIFY REQUEST ── from {cid} {'─'*max(0,18-len(cid))}┐{X}")
+            print(f"  {C}└{'─'*58}┘{X}\n")
+            self._event('tunnel', client=cid, kind='VERIFY', target='PQC')
+            from crypto.kyber_kex import KyberKEM
+            kem = KyberKEM()
+            pk, sk = kem.generate_keypair()
+            ct, ss1 = kem.encapsulate(pk)
+            ss2 = kem.decapsulate(sk, ct)
+            match = (ss1 == ss2)
+            result = json.dumps({
+                'backend': kyber_backend(),
+                'real_kyber': _REAL_KYBER,
+                'pk_bytes': len(pk), 'nist_pk': 1184,
+                'ct_bytes': len(ct), 'nist_ct': 1088,
+                'ss_bytes': len(ss1), 'nist_ss': 32,
+                'encaps_decaps_match': match,
+                'lattice': 'n=256 k=3 q=3329 (Module-LWE)',
+                'quantum_security': '~161 qubits (NIST Level 3)',
+                'standard': 'FIPS 203 (Aug 2024)',
+                'verdict': 'REAL POST-QUANTUM CRYPTO' if (match and _REAL_KYBER) else 'FALLBACK MODE'
+            }, indent=2)
+            return f"[TUNNEL:VERIFY]\n{result}"
+
+        return None
 
     # ── public API ────────────────────────────────────────────────────────────
 

@@ -274,16 +274,17 @@ ECDH_CURVE = SECP384R1 # 192-bit classical
        reject_connection()
    ```
 
-3. **Use Production Kyber Library**
+3. **Kyber Backend Already Real**
    ```python
-   # Replace simplified implementation with liboqs
+   # We use kyber-py (CRYSTALS-Kyber768 / NIST FIPS 203)
+   # For higher performance: switch to liboqs
    from oqs import KeyEncapsulation
    kem = KeyEncapsulation("Kyber768")
    ```
 
-4. **Add Perfect Forward Secrecy**
-   - Rotate session keys periodically
-   - Key compromise doesn't affect past sessions
+4. **Perfect Forward Secrecy Already Implemented**
+   - Fresh Kyber + ECDH keypairs generated for every session
+   - Key compromise of one session does not affect others
 
 ---
 
@@ -317,8 +318,9 @@ ECDH_CURVE = SECP384R1 # 192-bit classical
 │  ⚠️ Denial of service (no rate limiting)                    │
 │  ⚠️ Endpoint compromise (out of scope)                      │
 │                                                               │
-│  Overall: Suitable for demonstrating PQC concepts            │
-│  Production use requires additional controls                  │
+│  Overall: Real working VPN with PQC, HTTP/DNS tunneling,     │
+│  MITM attack demo, and live monitoring dashboard.             │
+│  Production use would add TUN/TAP, kill switch, UDP.         │
 │                                                               │
 └──────────────────────────────────────────────────────────────┘
 ```

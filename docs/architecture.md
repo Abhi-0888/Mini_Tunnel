@@ -160,30 +160,63 @@ crypto/
       Q-Vulnerable      Q-Safe          Q-Safe
 ```
 
-### Client Module (`client/`)
+### Client Module (`client/vpn_client.py`)
 
 ```python
 class VPNClient:
-    def __init__(server_host, server_port)
-    def connect() -> bool
-    def _perform_key_exchange() -> bool
-    def send_encrypted(data: bytes) -> bool
-    def receive_encrypted() -> bytes
-    def start_interactive()
+    def __init__(host, port)
+    def connect() -> bool             # TCP connect + handshake
+    def _handshake() -> bool          # Kyber-768 + ECDH P-384 key exchange
+    def send(plaintext: bytes)        # AES-256-GCM encrypt + send
+    def recv() -> bytes               # Receive + AES-256-GCM decrypt
+    def interactive()                 # VPN> prompt with tunnel commands
+    def run_demo()                    # 8-step automated tunnel demo
     def disconnect()
 ```
 
-### Server Module (`server/`)
+**Tunnel commands in interactive mode:**
+- `fetch <url>` — HTTP request through VPN tunnel (proves IP masking)
+- `resolve <host>` — DNS query through VPN tunnel (proves DNS privacy)
+- `verify` — PQC verification (proves Kyber-768 is real)
+- `ping` — Encrypted round-trip latency test
+
+### Server Module (`server/vpn_server.py`)
 
 ```python
 class VPNServer:
-    def __init__(host, port)
-    def start()
-    def _accept_clients()
-    def _handle_client(socket, addr)
-    def _perform_key_exchange(socket, addr) -> cipher
-    def _client_communication_loop(socket, cipher, addr)
-    def stop()
+    def __init__(host, port, event_callback)
+    def start()                       # Bind + accept loop
+    def _handle_client(conn, addr)    # Handshake + packet loop per client
+    def _handshake(conn, addr) -> cipher  # Kyber+ECDH, returns AES cipher
+    def _handle_tunnel(plaintext)     # Process TUNNEL:FETCH/DNS/VERIFY
+```
+
+**Server acts as VPN proxy:**
+- `TUNNEL:FETCH:<url>` — Server fetches HTTP on behalf of client
+- `TUNNEL:DNS:<domain>` — Server resolves DNS on behalf of client
+- `TUNNEL:VERIFY` — Server runs independent Kyber-768 encaps/decaps test
+
+### Dashboard Module (`dashboard/`)
+
+```python
+# dashboard/app.py — Flask SSE server
+@app.route('/events')      # Server-Sent Events stream
+@app.route('/')            # Real-time web dashboard
+
+# dashboard/templates/index.html — Tailwind dark UI
+# Animated network topology, dual wire/plaintext view
+# Live attack visualization, packet counters
+```
+
+### Attack Module (`attacks/`)
+
+```python
+# attacks/mitm_proxy.py — Transparent MITM proxy
+class MITMProxy:
+    def start()              # Listen on port 5001, forward to port 5000
+    def _relay()             # Forward handshake, then attack
+    def _replay_attack()     # Resend captured packet (blocked by counter)
+    def _tamper_attack()     # Flip 1 bit (blocked by GCM tag)
 ```
 
 ---
@@ -347,17 +380,21 @@ KYBER_VARIANT = 768  # Kyber-768 (192-bit security)
 
 ---
 
-## Limitations & Future Work
+## Current Capabilities & Future Work
 
-### Current Limitations
-1. **Simplified Kyber** - Educational implementation, not production-ready
-2. **No certificate verification** - No PKI for server authentication
-3. **Single connection** - Server handles clients sequentially
-4. **No IP tunneling** - Only encrypts application payloads
+### What Is Implemented
+1. **Real Kyber-768** — using `kyber-py` (CRYSTALS-Kyber / NIST FIPS 203), not simplified
+2. **Multi-client** — threaded server handles unlimited concurrent clients
+3. **HTTP/DNS tunnel proxy** — server fetches URLs and resolves DNS on behalf of clients
+4. **Bidirectional tunnel** — server pushes welcome + responses, client sends commands
+5. **MITM attack demo** — live replay and tamper attacks, both blocked
+6. **Real-time web dashboard** — Flask SSE with animated topology and dual wire/plaintext view
+7. **36 automated tests** — Kyber, AES-GCM, integration, benchmarks all passing
 
-### Future Enhancements
-1. Use `liboqs-python` for production Kyber
-2. Add X.509 certificate verification
-3. Implement IP-level packet encryption
-4. Add connection multiplexing
-5. Implement perfect forward secrecy with session keys
+### What Would Be Added for Commercial Use
+1. **TUN/TAP virtual interface** — route ALL system traffic through VPN automatically
+2. **Kill switch** — block internet if VPN drops (`iptables`/`netsh`)
+3. **UDP transport** — lower latency (like WireGuard)
+4. **X.509 certificate verification** — server identity authentication
+5. **Auto-reconnect** — resume tunnel after network interruption
+6. **Traffic obfuscation** — make VPN traffic look like HTTPS

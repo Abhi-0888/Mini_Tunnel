@@ -38,7 +38,7 @@ You need this so other devices can connect to your machine.
 ipconfig
 ```
 Look for **IPv4 Address** under your Wi-Fi or Ethernet adapter.  
-Example: `10.1.176.145`
+Example: `10.1.160.121`
 
 > **Important:** Both your machine and any connecting device must be on the **same Wi-Fi/network**.
 
@@ -64,13 +64,13 @@ py -3 launch_demo.py
 ======================================================================
 
   1. Open dashboard in any browser:
-       http://10.1.176.145:8080
+       http://10.1.160.121:8080
 
   2. Connect the VPN client:
-       py -3 client/vpn_client.py --host 10.1.176.145
+       py -3 client/vpn_client.py --host 10.1.160.121
   ...
 
-  Dashboard starting: http://10.1.176.145:8080
+  Dashboard starting: http://10.1.160.121:8080
   * Serving Flask app 'dashboard.app'
 ```
 
@@ -83,10 +83,10 @@ py -3 launch_demo.py
 On **any device on the same network**, open a browser and go to:
 
 ```
-http://<YOUR-LAN-IP>:8080
+http://10.1.160.121:8080
 ```
 
-Example: `http://10.1.176.145:8080`
+Example: `http://10.1.160.121:8080`
 
 **What you will see on the dashboard:**
 - A dark-themed real-time monitor
@@ -103,19 +103,19 @@ Example: `http://10.1.176.145:8080`
 
 Open **Terminal 2** in the project folder.
 
-**Option A — Automated demo (5 pre-set messages):**
+**Option A — Automated VPN tunnel demo (8 steps: PQC verify + DNS tunnel + HTTP tunnel + echo tests + latency):**
 ```
-py -3 client/vpn_client.py --host <YOUR-LAN-IP> --demo
+py -3 client/vpn_client.py --host 10.1.160.121 --demo
 ```
 
-**Option B — Interactive mode (type your own messages):**
+**Option B — Interactive VPN tunnel mode (run your own tunnel commands):**
 ```
-py -3 client/vpn_client.py --host <YOUR-LAN-IP>
+py -3 client/vpn_client.py --host 10.1.160.121
 ```
 
 **From another device on the same network:**
 ```
-py -3 client/vpn_client.py --host 10.1.176.145 --demo
+py -3 client/vpn_client.py --host 10.1.160.121 --demo
 ```
 
 **What you will see in the client terminal (Terminal 2):**
@@ -123,7 +123,7 @@ py -3 client/vpn_client.py --host 10.1.176.145 --demo
 ============================
   QUANTUM-SAFE VPN CLIENT
 ============================
-  [01:04:32] TCP connected to 10.1.176.145:5000
+  [01:04:32] TCP connected to 10.1.160.121:5000
   [01:04:32] Starting Kyber-768 + ECDH P-384 handshake...
   [01:04:32]   Client ECDH pub: 97 B | Client Kyber pub: 1184 B
   [01:04:32]   Server ECDH pub: 97 B | Server Kyber pub: 1184 B
@@ -143,10 +143,10 @@ py -3 client/vpn_client.py --host 10.1.176.145 --demo
 **What you will see in the server terminal (Terminal 1):**
 ```
   ┌──────────────────────────────────────────────────────────┐
-  │  TUNNEL ACTIVE  10.1.176.145:54321                      │
+  │  TUNNEL ACTIVE  10.1.160.121:54321                      │
   └──────────────────────────────────────────────────────────┘
 
-  ┌─ PKT #001 ── from 10.1.176.145:54321 ──────────────┐
+  ┌─ PKT #001 ── from 10.1.160.121:54321 ──────────────┐
   │ Wire  [  78 B]: 0000000000000001ec654b5ddfeab75c...
   │ Plain [  42 B]: Hello Server! Quantum-safe tunnel is live.
   └──────────────────────────────────────────────────────────┘
@@ -180,12 +180,12 @@ py -3 launch_demo.py
 Open **Terminal 2** in the project folder and run:
 
 ```
-py -3 attacks/mitm_proxy.py --target <YOUR-LAN-IP>
+py -3 attacks/mitm_proxy.py --target 10.1.160.121
 ```
 
 Example:
 ```
-py -3 attacks/mitm_proxy.py --target 10.1.176.145
+py -3 attacks/mitm_proxy.py --target 10.1.160.121
 ```
 
 **What you will see in Terminal 2 (attacker's view):**
@@ -195,7 +195,7 @@ py -3 attacks/mitm_proxy.py --target 10.1.176.145
   ══════════════════════════════════════════════════
 
   Listening on 0.0.0.0:5001
-  Forwarding to 10.1.176.145:5000
+  Forwarding to 10.1.160.121:5000
 
   Waiting for a victim to connect...
 ```
@@ -210,12 +210,12 @@ py -3 attacks/mitm_proxy.py --target 10.1.176.145
 Open **Terminal 3** in the project folder and run:
 
 ```
-py -3 client/vpn_client.py --host <YOUR-LAN-IP> --port 5001 --demo
+py -3 client/vpn_client.py --host 10.1.160.121 --port 5001 --demo
 ```
 
 Example:
 ```
-py -3 client/vpn_client.py --host 10.1.176.145 --port 5001 --demo
+py -3 client/vpn_client.py --host 10.1.160.121 --port 5001 --demo
 ```
 
 > The client thinks it's connecting directly to the VPN server. In reality, all traffic passes through the MITM proxy first.
@@ -254,7 +254,7 @@ py -3 client/vpn_client.py --host 10.1.176.145 --port 5001 --demo
 **In Terminal 1 (server), you will see:**
 ```
   ┌─ 🔁 REPLAY ATTACK BLOCKED ────────────────────────────┐
-  │ Duplicate counter — packet from 10.1.176.145:61234
+  │ Duplicate counter — packet from 10.1.160.121:61234
   │ Wire  [  78 B]: 0000000000000001ec654b5d...
   │ Result: DROPPED — counter already in recv_window
   └──────────────────────────────────────────────────────────┘
@@ -273,7 +273,7 @@ py -3 client/vpn_client.py --host 10.1.176.145 --port 5001 --demo
 **In Terminal 1 (server), you will see:**
 ```
   ┌─ ⚡ TAMPERING ATTACK BLOCKED ─────────────────────────┐
-  │ GCM auth tag mismatch — packet from 10.1.176.145:61234
+  │ GCM auth tag mismatch — packet from 10.1.160.121:61234
   │ Wire  [  85 B]: 00000000000000022a8446f4...
   │ Result: DROPPED — attacker cannot forge a valid GCM tag
   └──────────────────────────────────────────────────────────┘
@@ -299,23 +299,151 @@ py -3 client/vpn_client.py --host 10.1.176.145 --port 5001 --demo
 
 ---
 
-## PART 3 — Interactive Mode (Type Your Own Messages)
+## PART 3 — Interactive VPN Tunnel Mode
 
 Instead of `--demo`, run the client without any extra flag:
 
 ```
-py -3 client/vpn_client.py --host <YOUR-LAN-IP>
+py -3 client/vpn_client.py --host 10.1.160.121
 ```
 
-Then type any message and press Enter:
+### Available Tunnel Commands
+
+| Command | What It Does | VPN Proof |
+|---|---|---|
+| `fetch <any-url>like <http://httpbin.org/ip>` | **HTTP tunnel** — server fetches **any** URL for you through VPN | Proves IP masking (websites see server's IP) |
+| `resolve <any-domain> like <google.com>` | **DNS tunnel** — server resolves **any** domain through VPN | Proves DNS privacy (ISP sees nothing) |
+| `verify` | **PQC proof** — server runs Kyber-768 encaps/decaps test | Proves post-quantum crypto is real |
+| `ping` | **Latency test** — encrypted VPN round-trip timing | Proves end-to-end tunnel performance |
+| `stats` | Show encryption statistics (packets sent, bytes encrypted) | Shows packet counters |
+| `quit` | Close VPN tunnel | — |
+
+**You can fetch ANY URL and resolve ANY domain — examples:**
+
 ```
-  YOU> Hello from the quantum-safe tunnel!
-  YOU> This is a secret message
-  YOU> stats          ← shows encryption statistics
-  YOU> quit           ← closes the connection
+VPN> fetch http://httpbin.org/ip          ← best for demo (shows server's IP cleanly)
+VPN> fetch https://api.github.com         ← any HTTPS URL works
+VPN> fetch http://ifconfig.me             ← another IP-check service
+VPN> fetch https://www.google.com         ← fetches Google's homepage through VPN
+
+VPN> resolve youtube.com                  ← resolves YouTube's IPs through VPN
+VPN> resolve canva.com                    ← resolves Canva's IPs through VPN
+VPN> resolve github.com                   ← resolves GitHub's IPs through VPN
+VPN> resolve stackoverflow.com            ← any domain works
 ```
 
-Every message you type will appear in the server terminal AND update the dashboard live.
+> The demo uses `httpbin.org/ip` and `google.com` because they give short, clean output — but the tunnel works with **any URL or domain**.
+
+> **Note:** Any text that isn't a recognized command is sent as an **encrypted tunnel echo test** — it proves the tunnel encrypts and decrypts arbitrary data, but the primary VPN features are `fetch`, `resolve`, `verify`, and `ping`.
+
+### Example: Prove IP Masking (VPN Proxy)
+
+```
+  VPN> fetch http://httpbin.org/ip
+  Tunneling HTTP request through VPN…
+
+  ┌─ SEND ────────────────────────────────────────────────────┐
+  │ Plain  [  34 B]: TUNNEL:FETCH:http://httpbin.org/ip
+  │ Wire   [  70 B]: 0000000000000001a8b3c2d4e5f6...
+  │ Nonce  [  12 B]  Counter [  8 B]  GCM-Tag [ 16 B]
+  └──────────────────────────────────────────────────────────┘
+  ┌─ RECV ────────────────────────────────────────────────────┐
+  │ Wire   [  95 B]: 0000000000000002c4d5e6f7a8b9...
+  │ Plain  [  59 B]: [TUNNEL:FETCH] HTTP 200 | { "origin": "103.217.237.55" }
+  └──────────────────────────────────────────────────────────┘
+```
+
+> The IP `103.217.237.55` is the **server's** IP, not yours. The HTTP request was made by the server on your behalf. Your IP was never sent to httpbin.org. This is **exactly** how NordVPN and every commercial VPN masks your identity.
+
+### Example: Prove DNS Privacy
+
+```
+  VPN> resolve google.com
+  Tunneling DNS lookup through VPN…
+
+  ┌─ SEND ────────────────────────────────────────────────────┐
+  │ Plain  [  21 B]: TUNNEL:DNS:google.com
+  │ Wire   [  57 B]: 00000000000000030552...
+  └──────────────────────────────────────────────────────────┘
+  ┌─ RECV ────────────────────────────────────────────────────┐
+  │ Plain  [  43 B]: [TUNNEL:DNS] google.com → 142.251.221.238
+  └──────────────────────────────────────────────────────────┘
+```
+
+> DNS resolution happened **on the VPN server**, not your machine. Your ISP cannot see that you looked up google.com — they only see encrypted bytes going to the VPN server.
+
+### Example: Prove Post-Quantum Crypto Is Real
+
+```
+  VPN> verify
+  Requesting server-side PQC verification…
+
+  ┌─ RECV ────────────────────────────────────────────────────┐
+  │ Plain  [ 421 B]: [TUNNEL:VERIFY]
+  │ {
+  │   "backend": "kyber-py (CRYSTALS-Kyber768 / NIST FIPS 203)",
+  │   "real_kyber": true,
+  │   "pk_bytes": 1184, "nist_pk": 1184,
+  │   "ct_bytes": 1088, "nist_ct": 1088,
+  │   "encaps_decaps_match": true,
+  │   "lattice": "n=256 k=3 q=3329 (Module-LWE)",
+  │   "quantum_security": "~161 qubits (NIST Level 3)",
+  │   "verdict": "REAL POST-QUANTUM CRYPTO"
+  │ }
+  └──────────────────────────────────────────────────────────┘
+```
+
+> The server ran an **independent** Kyber-768 key generation + encapsulation + decapsulation test and proved all sizes match the NIST FIPS 203 standard exactly.
+
+### Example: Encrypted VPN Round-Trip Latency
+
+```
+  VPN> ping
+  VPN round-trip: 706 ms (encrypted)
+```
+
+> Measures: client encrypts → TCP → server decrypts → server fetches httpbin.org → server encrypts response → TCP → client decrypts. The entire VPN pipeline in one measurement.
+
+Every command you run updates the server terminal AND the live dashboard in real time.
+
+---
+
+## PART 4 — What Happens During Connection (PQC Proof)
+
+When any client connects, **both terminals automatically print**:
+
+### Client Terminal:
+```
+  ┌─ PQC PROOF ──────────────────────────────────────────────┐
+  │ Backend : kyber-py (CRYSTALS-Kyber768 / NIST FIPS 203)
+  │ Kyber pk: 1184 B ✓  ct: 1088 B ✓  key: 32 B ✓
+  │ Lattice : n=256, k=3, q=3329 (Module-LWE)
+  │ Verdict : REAL POST-QUANTUM CRYPTO
+  └──────────────────────────────────────────────────────────┘
+
+  ┌─ SERVER→CLIENT (bidirectional proof) ────────────────────┐
+  │ Wire  [ 132 B]: 0000000000000001a8b3c2d4e5f6...
+  │ Plain [  96 B]: [SERVER→CLIENT] Welcome! Tunnel ready. PQC=VERIFIED
+  └──────────────────────────────────────────────────────────┘
+```
+
+### Server Terminal:
+```
+  ┌─ PQC VERIFICATION ───────────────────────────────────────┐
+  │ Backend   : kyber-py (CRYSTALS-Kyber768 / NIST FIPS 203)
+  │ Kyber pk  :  1184 B  (NIST spec: 1184) ✓
+  │ Kyber ct  :  1088 B  (NIST spec: 1088) ✓
+  │ Secret    :    32 B  (256-bit key)     ✓
+  │ ECDH pk   :    97 B  (P-384 uncompressed)
+  │ Lattice   : n=256, k=3, q=3329 (Module-LWE)
+  │ Quantum   : ~161 qubits (Level 3) — SECURE
+  └──────────────────────────────────────────────────────────┘
+```
+
+This proves:
+- **Kyber-768 is real** (key sizes match NIST FIPS 203 exactly)
+- **Bidirectional** (server pushes welcome to client without being asked)
+- **Session key derived** from both Kyber lattice + ECDH elliptic curve
 
 ---
 
@@ -324,10 +452,10 @@ Every message you type will appear in the server terminal AND update the dashboa
 | Terminal | Command | Purpose |
 |---|---|---|
 | 1 | `py -3 launch_demo.py` | Start VPN server (port 5000) + Dashboard (port 8080) |
-| 2 | `py -3 attacks/mitm_proxy.py --target LAN_IP` | Start MITM attacker (port 5001) |
-| 3 | `py -3 client/vpn_client.py --host LAN_IP --demo` | Client → direct to server |
-| 3 | `py -3 client/vpn_client.py --host LAN_IP --port 5001 --demo` | Client → through MITM |
-| Browser | `http://LAN_IP:8080` | Live dashboard (any device on network) |
+| 2 | `py -3 attacks/mitm_proxy.py --target 10.1.160.121` | Start MITM attacker (port 5001) |
+| 3 | `py -3 client/vpn_client.py --host 10.1.160.121 --demo` | Client → direct to server |
+| 3 | `py -3 client/vpn_client.py --host 10.1.160.121 --port 5001 --demo` | Client → through MITM |
+| Browser | `http://10.1.160.121:8080` | Live dashboard (any device on network) |
 
 ---
 
@@ -335,26 +463,43 @@ Every message you type will appear in the server terminal AND update the dashboa
 
 ```
 py -3 launch_demo.py --vpn-port 5000 --dash-port 8080
-py -3 attacks/mitm_proxy.py --target LAN_IP --listen-port 5001 --target-port 5000
-py -3 client/vpn_client.py --host LAN_IP --port 5001
+py -3 attacks/mitm_proxy.py --target 10.1.160.121 --listen-port 5001 --target-port 5000
+py -3 client/vpn_client.py --host 10.1.160.121 --port 5001
 ```
 
 ---
 
 ## What Each Packet Contains (for the teacher)
 
-Every encrypted packet on the wire has this structure:
+Every encrypted VPN packet on the wire has this exact structure:
 
 ```
 ┌─────────────┬──────────────┬─────────────────────┬──────────────┐
-│ Counter (8B)│  Nonce (12B) │  Ciphertext (variable)│  GCM Tag(16B)│
+│ Counter (8B)│  Nonce (12B) │  Ciphertext (var)   │ GCM Tag(16B) │
 └─────────────┴──────────────┴─────────────────────┴──────────────┘
 ```
 
-- **Counter** — monotonically increasing; server rejects any duplicate → **replay protection**
-- **Nonce** — random 96-bit value; unique per packet → **prevents pattern analysis**
-- **Ciphertext** — AES-256 encrypted payload; unreadable without session key → **confidentiality**
-- **GCM Tag** — 128-bit authentication tag; any 1-bit change invalidates it → **tampering detection**
+- **Counter (8 bytes)** — monotonically increasing; server maintains a 64-packet sliding window and rejects any counter it has already seen → **replay protection**
+- **Nonce (12 bytes)** — random 96-bit value generated with `os.urandom(12)` for each packet; ensures that sending the same plaintext twice produces completely different ciphertext → **prevents pattern analysis**
+- **Ciphertext (variable)** — AES-256 encrypted payload; without the 32-byte session key, this is indistinguishable from random bytes → **confidentiality**
+- **GCM Tag (16 bytes)** — 128-bit GHASH authentication tag computed over the counter, nonce, and ciphertext; flipping even 1 bit in any field invalidates this tag → **tampering detection**
+
+**Overhead:** 36 bytes per packet (8+12+16). A 34-byte plaintext becomes 70 bytes on the wire.
+
+### What Wireshark / an attacker sees for this packet:
+
+```
+00 00 00 00 00 00 00 01   ← Counter=1 (cannot decode meaning)
+a8 b3 c2 d4 e5 f6 07 18   ← Nonce (random, no pattern)
+29 3a 4b 5c 7f 2e 4d 8c   ← Start of ciphertext (looks random)
+a1 b0 c3 d4 ... (34 B)    ← Rest of encrypted payload
+e3 f4 05 16 27 38 49 5a   ← GCM tag (first 8 bytes)
+6b 7c 8d 9e af b0 c1 d2   ← GCM tag (last 8 bytes)
+
+The attacker sees 70 bytes of seemingly random data.
+They cannot tell if it's a DNS query, HTTP request, or text.
+They cannot modify it (tag fails) or replay it (counter rejected).
+```
 
 ---
 

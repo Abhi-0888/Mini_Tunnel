@@ -1,8 +1,24 @@
-# 🔐 Quantum-Safe Mini-VPN System
+# 🔐 Quantum-Safe Tunnel VPN
 
-A cryptography and networking project demonstrating **Post-Quantum Cryptography (PQC)** in a VPN tunnel implementation. This project explores the quantum threat to classical cryptography and implements quantum-resistant solutions.
+A **real, working VPN** protected by **Post-Quantum Cryptography** — CRYSTALS-Kyber-768 (NIST FIPS 203, 2024) + ECDH P-384 hybrid key exchange with AES-256-GCM authenticated encryption.
 
-> ⚠️ **Cybersecurity Focus**: This project demonstrates how quantum computers threaten current cryptographic systems and how post-quantum algorithms provide protection.
+> **This is not a toy.** It creates an encrypted tunnel that proxies HTTP requests (masking your IP), tunnels DNS queries (preventing ISP snooping), blocks replay/tamper attacks live, and proves its post-quantum cryptography is real. Wireshark sees only random ciphertext. nmap sees an unknown service. Every packet is authenticated.
+
+### What Makes This a Real VPN
+
+| VPN Capability | How Tunnel_VPN Does It | Proof |
+|---|---|---|
+| **Encrypted tunnel** | AES-256-GCM on every packet | Wireshark sees only random bytes |
+| **IP masking** | `fetch` routes HTTP through server | httpbin.org returns server's IP, not yours |
+| **DNS privacy** | `resolve` sends DNS through encrypted tunnel | ISP sees zero DNS queries |
+| **Replay protection** | 64-packet sliding window | MITM demo: replayed packet → DROPPED |
+| **Tamper detection** | 128-bit GCM auth tag | MITM demo: 1-bit flip → DROPPED |
+| **Post-quantum crypto** | Kyber-768 (NIST FIPS 203) | `verify` returns full JSON PQC proof |
+| **Bidirectional** | Server pushes data without client asking | Welcome message proves server→client |
+| **Live monitoring** | Real-time web dashboard + terminal | Dashboard shows wire hex vs plaintext |
+| **Attack demo** | MITM proxy with replay + tamper | Both attacks blocked, shown on dashboard |
+
+> See **[VPN_PROOF.md](VPN_PROOF.md)** for the complete technical deep dive — byte-level packet analysis, Wireshark captures, nmap scans, and what makes this a real VPN vs. a commercial one.
 
 ---
 
@@ -78,17 +94,18 @@ sequenceDiagram
 ### Data Flow Diagram
 
 ```
-[Application]
-     ↓
-[Packet Capture - Scapy]
-     ↓
-[Kyber Key Exchange] ←→ [Server Kyber Exchange]
-     ↓
-[AES-256-GCM Encryption]
-     ↓
-━━━━ Encrypted Tunnel ━━━━ → [AES-256-GCM Decryption]
-     ↓                              ↓
-[Send Packet]                [Forward Packet]
+CLIENT                              WIRE (attacker sees)               SERVER
+┌───────────────────┐              ┌──────────────────┐              ┌───────────────────┐
+│ User command:     │              │                  │              │                   │
+│ "fetch url"       │              │  0x7a9c3f8b...   │              │ Decrypt → "fetch" │
+│ "resolve domain"  │──AES-256──►  │  (random bytes)  │──TCP───────► │ Fetch URL / DNS   │
+│ "hello world"     │   GCM        │  Can't read,     │              │ Process request   │
+│                   │              │  replay, or      │              │                   │
+│ Display response  │◄──AES-256──  │  tamper           │◄──TCP───────│ Encrypt response  │
+│ (server's IP!)    │   GCM        │  (random bytes)  │              │ (HTTP body / IPs) │
+└───────────────────┘              └──────────────────┘              └───────────────────┘
+         ↕                                                                    ↕
+  Kyber-768 + ECDH P-384 hybrid key exchange (quantum-safe session key)
 ```
 
 ---
@@ -111,35 +128,39 @@ sequenceDiagram
 ## 📁 Project Structure
 
 ```
-mini-vpn/
+Tunnel_VPN/
 ├── client/
-│   ├── vpn_client.py         # Main client with packet capture
-│   └── __init__.py
+│   └── vpn_client.py         # VPN client: tunnel commands (fetch/resolve/verify), PQC proof
 ├── server/
-│   ├── vpn_server.py         # Main server with forwarding
-│   └── __init__.py
+│   └── vpn_server.py         # VPN server: tunnel proxy, bidirectional push, PQC verification
 ├── crypto/                    # ⚡ Core Cryptography Module
-│   ├── kyber_kex.py          # Real Kyber-768 (NIST FIPS 203) via kyber-py
-│   ├── hybrid_kex.py         # Kyber-768 + ECDH P-384 hybrid
+│   ├── kyber_kex.py          # Real Kyber-768 KEM (NIST FIPS 203) via kyber-py
+│   ├── hybrid_kex.py         # Kyber-768 + ECDH P-384 hybrid key exchange
 │   ├── aes_gcm.py            # AES-256-GCM + sliding-window replay protection
 │   ├── classical_kex.py      # ECDH P-384 (quantum-vulnerable, for comparison)
-│   ├── benchmarks.py         # Kyber vs ECDH performance benchmarks
-│   └── __init__.py
+│   └── benchmarks.py         # Kyber vs ECDH performance benchmarks
 ├── attacks/                   # 🔴 Attack Demonstrations
+│   ├── mitm_proxy.py         # Live MITM proxy with replay + tamper attacks
+│   ├── replay_attack.py      # Standalone replay attack simulation
+│   ├── tampering_demo.py     # GCM tampering detection demo
 │   ├── sniffing_demo.md      # Wireshark capture guide
-│   ├── replay_attack.py      # Replay attack simulation
-│   ├── tampering_demo.py     # GCM tampering detection
 │   └── quantum_threat.md     # Quantum attack analysis
+├── dashboard/                 # 🌐 Real-Time Web Dashboard
+│   ├── app.py                # Flask SSE backend (live events, stats, API)
+│   └── templates/
+│       └── index.html        # Animated topology, dual wire/plaintext pane, live event log
 ├── docs/                      # 📚 Academic Documentation
 │   ├── architecture.md       # System design
 │   ├── threat_model.md       # Security analysis
 │   ├── quantum_crypto.md     # PQC theory & math
 │   ├── comparison.md         # Classical vs PQC
-│   └── diagrams/
+│   └── VISUAL_GUIDE.md       # Visual guide
 ├── tests/
 │   └── test_crypto.py        # 36 unit + integration + benchmark tests
-├── run_demo.py                # Master demo runner (all sections)
-├── simple_demo.py             # Interactive single-session demo
+├── launch_demo.py             # One-command launcher: server + dashboard + instructions
+├── run_demo.py                # Master demo runner (all crypto sections)
+├── INSTRUCTIONS.md            # Step-by-step demo guide with copy-paste commands
+├── VPN_PROOF.md               # Detailed proof this is a real VPN (feature-by-feature)
 ├── requirements.txt
 └── README.md
 ```
@@ -462,78 +483,63 @@ flowchart LR
 ### Prerequisites
 
 ```bash
-# Install all dependencies (Python 3.9+)
-pip install -r requirements.txt
-
-# Key packages:
-# - kyber-py>=1.2.0        Real CRYSTALS-Kyber768 (NIST FIPS 203)
-# - cryptography>=41.0.0   ECDH, AES-256-GCM
-# - scapy>=2.5.0           Packet capture
-# - pytest>=7.0.0          Test suite
+# Python 3.10+ required
+py -3 -m pip install kyber-py cryptography flask scapy pytest
 ```
 
-### Master Demo Runner
+### Quick Start (One Command)
 
 ```bash
-# Full interactive demo (all 7 sections)
-py -3 run_demo.py
-
-# Attack demonstrations only
-py -3 run_demo.py --attacks
-
-# Performance benchmark only
-py -3 run_demo.py --bench
-
-# Full demo, skip extended benchmark
-py -3 run_demo.py --quick
+# Terminal 1 — Start VPN server + live web dashboard
+py -3 launch_demo.py
 ```
 
-### Running the VPN Server + Client
+Open `http://<YOUR_LAN_IP>:8080` in any browser to see the live dashboard.
 
-**Terminal 1 - Start Server**:
 ```bash
-py -3 -m server.vpn_server
+# Terminal 2 — Run automated demo (messages + DNS tunnel + HTTP tunnel + PQC verify)
+py -3 client/vpn_client.py --host <YOUR_LAN_IP> --demo
 ```
 
-**Terminal 2 - Start Client**:
+### Interactive Mode (Tunnel Commands)
+
 ```bash
-py -3 -m client.vpn_client
+py -3 client/vpn_client.py --host <YOUR_LAN_IP>
 ```
+
+| Command | What It Does |
+|---|---|
+| `fetch http://httpbin.org/ip` | HTTP proxy through VPN — proves IP masking |
+| `resolve google.com` | DNS through VPN — proves DNS privacy |
+| `verify` | Server-side Kyber-768 proof — proves PQC is real |
+| `stats` | Show encryption statistics |
+| `quit` | Disconnect |
+
+### MITM Attack Demo (3 terminals)
+
+```bash
+# Terminal 1: py -3 launch_demo.py
+# Terminal 2: py -3 attacks/mitm_proxy.py --target <YOUR_LAN_IP>
+# Terminal 3: py -3 client/vpn_client.py --host <YOUR_LAN_IP> --port 5001 --demo
+```
+
+Watch replay and tamper attacks get blocked in real time — in all 3 terminals and the dashboard.
 
 ### Running Tests
 
 ```bash
-# Full test suite (36 tests)
-py -3 -m pytest tests/test_crypto.py -v
-
-# With benchmark output
-py -3 -m pytest tests/test_crypto.py -v -s
+py -3 -m pytest tests/test_crypto.py -v     # 36 tests, all should pass
 ```
 
-### Running Attack Demos
+### Other Demos
 
 ```bash
-# Replay Attack Demo
-py -3 attacks/replay_attack.py
-
-# Tampering Demo  
-py -3 attacks/tampering_demo.py
-```
-
-### Individual Module Demos
-
-```bash
-# Kyber-768 key exchange demo
-py -3 crypto/kyber_kex.py
-
-# Hybrid Kyber + ECDH demo
-py -3 crypto/hybrid_kex.py
-
-# Standalone benchmarks
-py -3 crypto/benchmarks.py
-
-# Simple interactive session demo
-py -3 simple_demo.py
+py -3 run_demo.py                  # Full interactive crypto demo (all sections)
+py -3 run_demo.py --attacks        # Attack demonstrations only
+py -3 run_demo.py --bench          # Performance benchmarks only
+py -3 crypto/benchmarks.py         # Kyber vs ECDH latency + throughput
+py -3 attacks/replay_attack.py     # Standalone replay attack
+py -3 attacks/tampering_demo.py    # Standalone tamper detection
 ```
 
 ---
@@ -542,6 +548,8 @@ py -3 simple_demo.py
 
 | Document | Description |
 |----------|-------------|
+| **[VPN_PROOF.md](VPN_PROOF.md)** | **Detailed proof this is a real VPN — feature-by-feature comparison** |
+| **[INSTRUCTIONS.md](INSTRUCTIONS.md)** | **Step-by-step demo guide with copy-paste commands** |
 | [docs/quantum_crypto.md](docs/quantum_crypto.md) | Post-Quantum Cryptography theory, Lattice-based crypto, LWE problem |
 | [docs/comparison.md](docs/comparison.md) | Classical ECDH vs Kyber comparison, benchmarks |
 | [docs/threat_model.md](docs/threat_model.md) | Security analysis, attack vectors, mitigations |

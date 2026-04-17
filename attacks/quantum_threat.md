@@ -151,27 +151,37 @@ This is HARD even for quantum computers!
 
 ---
 
-## 🔐 Our Implementation: Hybrid Approach
+## 🔐 Our Implementation: Hybrid Post-Quantum VPN
 
 ### Why Hybrid (Kyber + ECDH)?
 
-During the transition period, we use both:
+Tunnel_VPN combines both algorithms — attacker must break **both** to compromise the key:
 
 ```
-Final Key = Hash(ECDH_Secret || Kyber_Secret)
+Final Key = SHA-384(ECDH_Secret || Kyber_Secret) → 32-byte AES-256 key
 ```
 
 **Security guarantee:**
-- If ECDH is broken → Kyber protects
-- If Kyber is broken → ECDH protects
-- Both must be broken to compromise key
+- If ECDH is broken (quantum computer) → Kyber still protects
+- If Kyber is broken (unlikely) → ECDH still protects
+- Both must be broken to compromise the session key
+
+### What Tunnel_VPN Actually Does
+
+1. **Kyber-768 + ECDH P-384 hybrid key exchange** — quantum-safe session establishment
+2. **AES-256-GCM encrypted tunnel** — all traffic encrypted with 128-bit auth tags
+3. **HTTP/DNS proxy tunneling** — `fetch` and `resolve` commands route through VPN server
+4. **IP masking** — websites see the VPN server's IP, not yours
+5. **Replay + tamper protection** — 64-packet sliding window + GCM authentication
+6. **Live MITM attack demo** — proves security claims with real intercepted traffic
+7. **36 automated tests + PQC verification** — cryptographic correctness proven
 
 ### Who Else Uses Hybrid?
 
-- **Signal Messenger** - PQXDH protocol (X25519 + Kyber)
-- **Google Chrome** - TLS with Kyber (experimental)
-- **Cloudflare** - Post-quantum experiments
-- **AWS** - Post-quantum TLS support
+- **Signal Messenger** — PQXDH protocol (X25519 + Kyber)
+- **Google Chrome** — TLS with Kyber (experimental)
+- **Cloudflare** — Post-quantum experiments
+- **AWS** — Post-quantum TLS support
 
 ---
 

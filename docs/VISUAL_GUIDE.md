@@ -1,73 +1,86 @@
-# 🔐 Simple VPN Demonstration Guide
+# Quantum-Safe VPN — Visual Demonstration Guide
 
-This guide explains how the **Mini-VPN** works to secure communication over an insecure network (like the internet).
-
----
-
-## 🎭 The Scenario
-
-| Who? | Name | Role |
-| :--- | :--- | :--- |
-| 🧑 | **Client** (Alice) | Sends a sensitive message across the network. |
-| 🖥️ | **Server** (Bob) | Receives the message. |
-| 🦹 | **Attacker** (Eve) | Tries to intercept, read, or modify the message. |
+This guide walks through what a real VPN does — and how Tunnel_VPN proves each feature live.
 
 ---
 
-## 📦 Step 1: Encryption (The Secure Envelope)
+## The Scenario
 
-To prevent eavesdropping, we place the message inside a cryptographic "envelope."
-
-1. **Client** generates a random **session key**.
-2. **Client** encrypts the message using **AES-256-GCM**.
-3. **Attacker** sees only random noise (ciphertext).
-
-> **Concept:** Encryption transforms readable text into unreadable ciphertext.
-
----
-
-## 🗝️ Step 2: Key Exchange (The Handshake)
-
-How do the Client and Server share the *same* key without the Attacker seeing it?
-
-**Solution: Post-Quantum Key Exchange (Kyber)**
-
-1. **Client** and **Server** perform a mathematical exchange.
-2. They publicly share components that, when combined privately, generate the **shared secret key**.
-3. Even if a Quantum Computer analyzes the public components, it cannot deduce the private key.
-
-> **Concept:** This prevents "Harvest Now, Decrypt Later" attacks.
+| Who | Role | What they see |
+|---|---|---|
+| **Client** (your laptop) | Sends HTTP/DNS requests through VPN | Plaintext + encrypted wire bytes side by side |
+| **Server** (VPN server) | Receives encrypted traffic, proxies to internet | Decrypts client requests, fetches on their behalf |
+| **Attacker** (Eve/MITM) | Intercepts all packets between client and server | Only random-looking ciphertext. Cannot read, modify, or replay. |
+| **Dashboard** (browser) | Real-time monitor for the teacher/audience | Animated topology, wire hex vs plaintext, attack alerts |
 
 ---
 
-## 🛡️ Step 3: Attack Defenses
+## What the VPN Demo Proves
 
-The demo script (`simple_demo.py`) simulates three types of attacks:
+### 1. Encrypted Tunnel — All Data Is Ciphertext
 
-### 1. Sniffing (Eavesdropping)
-- **Attack**: Eve captures the packet.
-- **Defense**: Encryption makes the payload unreadable.
+```
+Client sends:  "TUNNEL:FETCH:http://httpbin.org/ip"   ← readable text
+Wire carries:  0000000000000001ec654b5ddfeab75c...     ← 70 bytes of random-looking data
 
-### 2. Tampering (Modification)
-- **Attack**: Eve flips a bit in the encrypted packet to corrupt the data.
-- **Defense**: The **GCM Authentication Tag** detects the change and the Server *rejects* the packet.
-
-### 3. Replay Attack
-- **Attack**: Eve captures a valid packet and sends it again later.
-- **Defense**: A **Counter/Nonce** ensures each packet is unique. The Server rejects old or duplicate packets.
-
----
-
-## 🧪 Running the Demo
-
-Run the interactive Python script to see these concepts in action:
-
-```bash
-# If 'python' command is available:
-python simple_demo.py
-
-# Or use the Python Launcher:
-py simple_demo.py
+Attacker sees the wire bytes. CANNOT see the plaintext.
 ```
 
-Follow the on-screen prompts to simulate sending a secure message and witnessing the defenses against Eve.
+### 2. IP Masking — Your IP Is Hidden
+
+```
+VPN> fetch http://httpbin.org/ip
+
+Without VPN: httpbin sees YOUR IP → 10.1.160.121
+With VPN:    httpbin sees SERVER IP → 103.217.237.55
+```
+
+The server made the HTTP request on your behalf. Your IP was never exposed.
+
+### 3. DNS Privacy — ISP Sees Nothing
+
+```
+VPN> resolve google.com
+
+Without VPN: ISP DNS log → "User looked up google.com at 23:31"
+With VPN:    ISP sees → encrypted bytes to port 5000. Zero DNS queries.
+```
+
+### 4. Attack Resistance — Replay & Tamper Blocked
+
+```
+Replay: Attacker resends same packet → Server: "Counter already seen. DROPPED."
+Tamper: Attacker flips 1 bit       → Server: "GCM tag mismatch. DROPPED."
+```
+
+### 5. Post-Quantum Crypto — Future-Proof
+
+```
+Kyber-768 key sizes match NIST FIPS 203:
+  Public key: 1184 B ✓  Ciphertext: 1088 B ✓  Secret: 32 B ✓
+  Lattice: n=256, k=3, q=3329 (Module-LWE)
+  Security: ~161 qubits — no quantum computer can break this today
+```
+
+---
+
+## Running the Demo (3 Terminals + Browser)
+
+```
+Terminal 1:  py -3 launch_demo.py                                    ← Server + Dashboard
+Terminal 2:  py -3 attacks/mitm_proxy.py --target <LAN-IP>           ← MITM Attacker
+Terminal 3:  py -3 client/vpn_client.py --host <LAN-IP> --port 5001 --demo  ← Client through MITM
+Browser:     http://<LAN-IP>:8080                                    ← Live dashboard
+```
+
+The 8-step automated demo runs:
+1. PQC verification (prove Kyber-768 is real)
+2. DNS tunnel: resolve google.com through VPN
+3. DNS tunnel: resolve github.com through VPN
+4. HTTP tunnel: fetch public IP through VPN (proves IP masking)
+5. HTTP tunnel: fetch headers through VPN
+6. Echo test: encrypt sensitive data through tunnel
+7. Echo test: encrypt medical data through tunnel
+8. Latency test: measure full encrypted round-trip
+
+All traffic shows on the dashboard in real time with wire hex vs plaintext side by side.

@@ -198,9 +198,12 @@ class VPNServer:
                     print(f"  {R}│{X} {D}Wire  [{len(raw):4d} B]:{X} {raw.hex()[:48]}…")
                     print(f"  {R}│{X} {R}Result: DROPPED — attacker cannot forge a valid GCM tag{X}")
                     print(f"  {R}└{'─'*58}┘{X}\n")
+                    # Send attack event to dashboard with detailed explanation
                     self._event('attack', client=cid, kind='TAMPERING',
-                                detail='GCM authentication tag mismatch',
-                                enc_preview=raw.hex()[:48])
+                                detail='GCM authentication tag mismatch — 1 flipped bit invalidates 128-bit GHASH',
+                                enc_preview=raw.hex()[:48],
+                                pkt_bytes=len(raw),
+                                reason='Attacker modified ciphertext but cannot forge valid auth tag without AES key')
 
                 except ReplayAttackError as e:
                     with self._lock:
@@ -210,8 +213,12 @@ class VPNServer:
                     print(f"  {R}│{X} {D}Wire  [{len(raw):4d} B]:{X} {raw.hex()[:48]}…")
                     print(f"  {R}│{X} {R}Result: DROPPED — counter already in recv_window{X}")
                     print(f"  {R}└{'─'*58}┘{X}\n")
+                    # Send attack event to dashboard with detailed explanation
                     self._event('attack', client=cid, kind='REPLAY',
-                                detail=str(e), enc_preview=raw.hex()[:48])
+                                detail=f'{str(e)} — 64-packet sliding window rejects duplicates',
+                                enc_preview=raw.hex()[:48],
+                                pkt_bytes=len(raw),
+                                reason='Attacker resent same packet but counter already processed')
 
         except ConnectionError:
             self._log(f"[{cid}] Disconnected", Y)

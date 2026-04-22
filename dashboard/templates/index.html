@@ -420,28 +420,33 @@ function addMessageRow(ev) {
   const isAttack = ev.type === 'attack';
   const hex = (ev.enc_preview||'').substring(0,48);
   const wireColour = isAttack ? '#fca5a5' : '#9ca3af';
-  const wireLabel  = isAttack ? `⚠️ ${ev.kind} DETECTED` : '🔒 Encrypted ciphertext';
+  const wireLabel  = isAttack ? `🚨 ${ev.kind} ATTACK DETECTED` : '🔒 Encrypted ciphertext';
   const plainColour = isAttack ? '#6b7280' : '#4ade80';
+  // Show detailed reason if available (from server attack event)
+  const attackReason = isAttack && ev.reason ? `<div style="font-size:.6rem;color:#9ca3af;margin-top:4px;border-top:1px solid #7f1d1d;padding-top:4px">🛡️ ${escHtml(ev.reason)}</div>` : '';
   const plainContent = isAttack
-    ? `<span style="color:#f87171;font-weight:700">BLOCKED — ${ev.detail}</span>`
+    ? `<span style="color:#f87171;font-weight:700">❌ BLOCKED — ${ev.detail}</span>${attackReason}`
     : `<span style="color:#4ade80">${escHtml(ev.content||'')}</span>`;
 
   const card = document.createElement('div');
   card.className = 'msg-card' + (isAttack?' attack':'');
+  // Add extra styling for attack cards
+  const attackStyle = isAttack ? 'border:2px solid #dc2626;box-shadow:0 0 20px rgba(220,38,38,0.4);' : '';
+  card.style = attackStyle;
   card.innerHTML = `
-    <div style="padding:6px 8px;border-bottom:1px solid var(--c-border);display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:.68rem;color:#6b7280">${ev.time||''} · ${escHtml(ev.client||'')}</span>
-      <span style="font-size:.68rem;color:${isAttack?'#f87171':'#60a5fa'}">${isAttack?'⚡ ATTACK':'📦 packet #'+S.packets}</span>
+    <div style="padding:6px 8px;border-bottom:1px solid var(--c-border);display:flex;justify-content:space-between;align-items:center;background:${isAttack?'#450a0a':''}">
+      <span style="font-size:.68rem;color:${isAttack?'#fca5a5':'#6b7280'};font-weight:${isAttack?'700':'400'}">${ev.time||''} · ${escHtml(ev.client||'')}</span>
+      <span style="font-size:.7rem;color:${isAttack?'#dc2626':'#60a5fa'};font-weight:700;letter-spacing:0.5px">${isAttack?'⚡ ATTACK BLOCKED':'📦 packet #'+S.packets}</span>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
-      <div style="padding:6px 8px;border-right:1px solid var(--c-border)">
+      <div style="padding:6px 8px;border-right:1px solid var(--c-border);background:${isAttack?'#271212':''}">
         <div style="font-size:.6rem;color:#9ca3af;margin-bottom:2px">${wireLabel}</div>
         <div class="mono hex-val" style="font-size:.62rem;color:${wireColour};line-height:1.4">${hex}…</div>
-        <div style="font-size:.6rem;color:#6b7280;margin-top:2px">${ev.pkt_bytes||0} bytes on wire</div>
+        <div style="font-size:.6rem;color:#6b7280;margin-top:2px">${ev.pkt_bytes||Math.ceil((ev.enc_preview||'').length/2)||0} bytes on wire</div>
       </div>
-      <div style="padding:6px 8px">
-        <div style="font-size:.6rem;color:#6b7280;margin-bottom:2px">🔓 Server decrypted</div>
-        <div style="font-size:.72rem;${plainContent.includes('BLOCKED')?'':'color:#e5e7eb'}">${plainContent}</div>
+      <div style="padding:6px 8px;background:${isAttack?'#271212':''}">
+        <div style="font-size:.6rem;color:#6b7280;margin-bottom:2px">${isAttack?'🛡️ Defense triggered':'🔓 Server decrypted'}</div>
+        <div style="font-size:.72rem;line-height:1.4">${plainContent}</div>
       </div>
     </div>`;
   pane.appendChild(card);

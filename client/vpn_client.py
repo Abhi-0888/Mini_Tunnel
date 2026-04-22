@@ -166,6 +166,9 @@ class VPNClient:
 
     def recv(self):
         raw = self._recv_data()
+        # Handle connection close or empty packet gracefully
+        if not raw or len(raw) < 36:  # min: 8 counter + 12 nonce + 16 tag
+            return None
         try:
             pt = self.cipher.decrypt(raw)
             msg = pt.decode('utf-8', errors='replace')
@@ -289,7 +292,7 @@ class VPNClient:
         while self.running:
             try:
                 raw = self._recv_data()
-                if not raw:
+                if not raw or len(raw) < 36:  # min: 8 counter + 12 nonce + 16 tag
                     break
                 try:
                     pt = self.cipher.decrypt(raw)

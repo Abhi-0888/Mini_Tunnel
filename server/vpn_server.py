@@ -199,6 +199,7 @@ class VPNServer:
                     print(f"  {R}│{X} {R}Result: DROPPED — attacker cannot forge a valid GCM tag{X}")
                     print(f"  {R}└{'─'*58}┘{X}\n")
                     # Send attack event to dashboard with detailed explanation
+                    print(f"  {Y}[DASHBOARD] Sending TAMPERING attack event...{X}")
                     self._event('attack', client=cid, kind='TAMPERING',
                                 detail='GCM authentication tag mismatch — 1 flipped bit invalidates 128-bit GHASH',
                                 enc_preview=raw.hex()[:48],
@@ -214,6 +215,7 @@ class VPNServer:
                     print(f"  {R}│{X} {R}Result: DROPPED — counter already in recv_window{X}")
                     print(f"  {R}└{'─'*58}┘{X}\n")
                     # Send attack event to dashboard with detailed explanation
+                    print(f"  {Y}[DASHBOARD] Sending REPLAY attack event...{X}")
                     self._event('attack', client=cid, kind='REPLAY',
                                 detail=f'{str(e)} — 64-packet sliding window rejects duplicates',
                                 enc_preview=raw.hex()[:48],

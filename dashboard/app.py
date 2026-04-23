@@ -48,6 +48,7 @@ def emit_event(event_type: str, **kwargs):
         stats['packets'] += 1
     elif event_type == 'attack':
         stats['attacks'] += 1
+        print(f"[DASHBOARD] Attack event received: {kwargs.get('kind')} from {kwargs.get('client')}")
     elif event_type == 'client_connect':
         stats['clients'] += 1
     elif event_type == 'kex_done':

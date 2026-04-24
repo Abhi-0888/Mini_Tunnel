@@ -67,12 +67,24 @@ def _recv_exact(sock, n):
     return buf
 
 
-def _read_framed(sock):
+def _read_framed(sock, debug_label=""):
     """Read one length-prefixed frame: [4-byte big-endian len][data]"""
-    raw_len = _recv_exact(sock, 4)
-    n = int.from_bytes(raw_len, 'big')
-    data = _recv_exact(sock, n)
-    return raw_len + data, data    # full_frame, payload_only
+    try:
+        raw_len = _recv_exact(sock, 4)
+        n = int.from_bytes(raw_len, 'big')
+        if debug_label:
+            print(f"  {D}[DEBUG] _read_framed({debug_label}): reading {n} bytes{X}")
+            sys.stdout.flush()
+        data = _recv_exact(sock, n)
+        if debug_label:
+            print(f"  {D}[DEBUG] _read_framed({debug_label}): read {len(data)} bytes{X}")
+            sys.stdout.flush()
+        return raw_len + data, data    # full_frame, payload_only
+    except ConnectionError as e:
+        if debug_label:
+            print(f"  {R}[DEBUG] _read_framed({debug_label}): ConnectionError - {e}{X}")
+            sys.stdout.flush()
+        raise
 
 
 def _write_framed(sock, full_frame):
@@ -193,6 +205,21 @@ class MITMProxy:
         print(f"  {R}Attacker has ALL handshake bytes but CANNOT compute shared secret!{X}")
         print(f"  {D}  Kyber-768 KEM: shared secret derived inside each party separately.{X}")
         print(f"  {D}  Module-LWE: no known polynomial-time solution (classical or quantum).{X}\n")
+        sys.stdout.flush()
+
+        # ── Forward server's encrypted welcome message ─────────────────────────
+        # After handshake, server sends an encrypted welcome to prove
+        # server→client direction works. We must relay it or the client
+        # blocks forever waiting for it.
+        try:
+            welcome_frame, welcome_data = _read_framed(server_sock, "welcome_from_server")
+            _write_framed(client_sock, welcome_frame)
+            print(f"  {D}[MITM] S→C  encrypted welcome     {len(welcome_data):5} B (forwarded){X}\n")
+            sys.stdout.flush()
+        except ConnectionError as e:
+            print(f"  {R}[MITM] Failed to read server welcome: {e}{X}")
+            client_sock.close(); server_sock.close()
+            return
 
         # ── Phase 2: synchronous intercept + attacks ──────────────────────────
         # We do everything synchronously to avoid race conditions.
@@ -206,13 +233,21 @@ class MITMProxy:
         print(f"  {Y}{'─'*60}{X}\n")
 
         try:
+            print(f"  {D}[DEBUG] Waiting for Message 1 from client...{X}")
+            sys.stdout.flush()
             # ── Message 1: capture & forward normally ─────────────────────────
-            frame1, p1 = _read_framed(client_sock)
+            frame1, p1 = _read_framed(client_sock, "msg1_from_client")
+            print(f"  {D}[DEBUG] Got Message 1: {len(p1)} bytes{X}")
+            sys.stdout.flush()
             _write_framed(server_sock, frame1)
             print(f"  {D}[MITM] C→S  encrypted packet   {len(p1):5} B"
                   f"  hex: {p1.hex()[:40]}...{X}")
 
-            ack1, _ = _read_framed(server_sock)
+            print(f"  {D}[DEBUG] Waiting for ACK from server...{X}")
+            sys.stdout.flush()
+            ack1, _ = _read_framed(server_sock, "ack1_from_server")
+            print(f"  {D}[DEBUG] Got ACK from server: {len(_)} bytes{X}")
+            sys.stdout.flush()
             _write_framed(client_sock, ack1)
             print(f"  {D}[MITM] S→C  encrypted ACK       {len(_):5} B (forwarded){X}\n")
 
@@ -226,7 +261,7 @@ class MITMProxy:
             _write_framed(server_sock, frame1)   # identical replay
             server_sock.settimeout(1.2)
             try:
-                _read_framed(server_sock)        # server should NOT respond
+                _read_framed(server_sock, "replay_response")        # server should NOT respond
                 print(f"  {R}WARNING: Server accepted the replay — unexpected!{X}")
             except (ConnectionError, socket.timeout, OSError):
                 print(f"  {BOLD_G}REPLAY BLOCKED!{X}")
@@ -236,7 +271,7 @@ class MITMProxy:
                 server_sock.settimeout(None)
 
             # ── Message 2: intercept for TAMPER demo ──────────────────────────
-            frame2, p2 = _read_framed(client_sock)
+            frame2, p2 = _read_framed(client_sock, "msg2_from_client")
             print(f"  {D}[MITM] C→S  encrypted packet   {len(p2):5} B"
                   f"  hex: {p2.hex()[:40]}...{X}")
 
@@ -257,7 +292,7 @@ class MITMProxy:
             server_sock.sendall(bytes(tampered))   # length-framed tampered
             server_sock.settimeout(1.2)
             try:
-                _read_framed(server_sock)
+                _read_framed(server_sock, "tamper_response")
                 print(f"  {R}WARNING: Server accepted tampered packet — unexpected!{X}")
             except (ConnectionError, socket.timeout, OSError):
                 print(f"  {BOLD_G}TAMPERING BLOCKED!{X}")
@@ -269,12 +304,20 @@ class MITMProxy:
 
             # Forward the REAL message 2 so client gets its ACK
             _write_framed(server_sock, frame2)
-            ack2, _ = _read_framed(server_sock)
+            ack2, _ = _read_framed(server_sock, "ack2_from_server")
             _write_framed(client_sock, ack2)
             print(f"  {D}[MITM] Original msg2 forwarded → client receives ACK{X}\n")
 
         except ConnectionError as ce:
             print(f"  {Y}Connection closed during attack phase: {ce}{X}\n")
+            sys.stdout.flush()
+            return
+        except Exception as e:
+            print(f"  {R}ERROR in attack phase: {type(e).__name__}: {e}{X}\n")
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
+            return
 
         # ── Phase 3: transparent forwarding for remaining messages ─────────────
         print(f"  {Y}{'─'*60}{X}")
